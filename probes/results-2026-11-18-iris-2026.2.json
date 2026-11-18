@@ -1,0 +1,1624 @@
+{
+ "meta.version": {
+  "result": "IRIS for UNIX (Ubuntu Server LTS for ARM64 Containers) 2026.2 (Build 221U) Fri Jun 26 2026 09:59:12 EDT"
+ },
+ "meta.driver": {
+  "result": "unknown"
+ },
+ "q1.order_by_in_subquery": {
+  "sql": "SELECT id FROM (SELECT id FROM FluxoraProbe.T ORDER BY id DESC)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "q1.order_by_in_subquery_with_top": {
+  "sql": "SELECT id FROM (SELECT TOP 3 id FROM FluxoraProbe.T ORDER BY id DESC)",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ],
+   [
+    4
+   ],
+   [
+    3
+   ]
+  ]
+ },
+ "q1.order_by_in_subquery_with_top_all": {
+  "sql": "SELECT id FROM (SELECT TOP ALL id FROM FluxoraProbe.T ORDER BY id DESC)",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ],
+   [
+    4
+   ],
+   [
+    3
+   ],
+   [
+    2
+   ],
+   [
+    1
+   ]
+  ]
+ },
+ "q1.order_by_in_subquery_then_filter": {
+  "sql": "SELECT id FROM (SELECT TOP ALL id FROM FluxoraProbe.T ORDER BY id DESC) WHERE id > 1",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ],
+   [
+    4
+   ],
+   [
+    3
+   ],
+   [
+    2
+   ]
+  ]
+ },
+ "q1.order_by_in_cte": {
+  "sql": "WITH c AS (SELECT id FROM FluxoraProbe.T ORDER BY id DESC) SELECT id FROM c",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "q1.order_by_inside_union_arm": {
+  "sql": "SELECT id FROM FluxoraProbe.T WHERE id < 3 ORDER BY id DESC UNION ALL SELECT id FROM FluxoraProbe.T WHERE id >= 3",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-25>:<Input encountered after end of query>]"
+ },
+ "q1.order_by_after_union": {
+  "sql": "SELECT id FROM FluxoraProbe.T WHERE id < 3 UNION ALL SELECT id FROM FluxoraProbe.T WHERE id >= 3 ORDER BY id DESC",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ],
+   [
+    4
+   ],
+   [
+    3
+   ],
+   [
+    2
+   ],
+   [
+    1
+   ]
+  ]
+ },
+ "q1.union_distinct_vs_all": {
+  "sql": "SELECT COUNT(*) FROM (SELECT grp FROM FluxoraProbe.T UNION SELECT grp FROM FluxoraProbe.T)",
+  "status": "ok",
+  "result": [
+   [
+    3
+   ]
+  ]
+ },
+ "q2.top_n": {
+  "sql": "SELECT TOP 2 id FROM FluxoraProbe.T ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    2
+   ]
+  ]
+ },
+ "q2.top_param": {
+  "sql": "SELECT TOP ? id FROM FluxoraProbe.T ORDER BY id  -- params=[2]",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    2
+   ]
+  ]
+ },
+ "q2.limit": {
+  "sql": "SELECT id FROM FluxoraProbe.T ORDER BY id LIMIT 2",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    2
+   ]
+  ]
+ },
+ "q2.limit_offset": {
+  "sql": "SELECT id FROM FluxoraProbe.T ORDER BY id LIMIT 2 OFFSET 1",
+  "status": "ok",
+  "result": [
+   [
+    2
+   ],
+   [
+    3
+   ]
+  ]
+ },
+ "q2.limit_param": {
+  "sql": "SELECT id FROM FluxoraProbe.T ORDER BY id LIMIT ?  -- params=[2]",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    2
+   ]
+  ]
+ },
+ "q2.offset_fetch": {
+  "sql": "SELECT id FROM FluxoraProbe.T ORDER BY id OFFSET 1 ROWS FETCH NEXT 2 ROWS ONLY",
+  "status": "ok",
+  "result": [
+   [
+    2
+   ],
+   [
+    3
+   ]
+  ]
+ },
+ "q2.limit_in_subquery": {
+  "sql": "SELECT id FROM (SELECT id FROM FluxoraProbe.T ORDER BY id LIMIT 2) ORDER BY id DESC",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "q3.param_in_where": {
+  "sql": "SELECT id FROM FluxoraProbe.T WHERE i > ? ORDER BY id  -- params=[3]",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    5
+   ]
+  ]
+ },
+ "q3.param_in_select_and_group_by": {
+  "sql": "SELECT i + ? AS k, COUNT(*) FROM FluxoraProbe.T GROUP BY i + ?  -- params=[1, 1]",
+  "status": "ok",
+  "result": [
+   [
+    null,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    8,
+    1
+   ]
+  ]
+ },
+ "q3.literal_in_select_and_group_by": {
+  "sql": "SELECT i + 1 AS k, COUNT(*) FROM FluxoraProbe.T GROUP BY i + 1",
+  "status": "ok",
+  "result": [
+   [
+    null,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    8,
+    1
+   ]
+  ]
+ },
+ "q3.group_by_alias": {
+  "sql": "SELECT i + 1 AS k, COUNT(*) FROM FluxoraProbe.T GROUP BY k",
+  "status": "ok",
+  "result": [
+   [
+    null,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    8,
+    1
+   ]
+  ]
+ },
+ "q3.group_by_ordinal": {
+  "sql": "SELECT i + 1 AS k, COUNT(*) FROM FluxoraProbe.T GROUP BY 1",
+  "status": "ok",
+  "result": [
+   [
+    8,
+    5
+   ]
+  ]
+ },
+ "q3.param_in_case_select_group": {
+  "sql": "SELECT CASE WHEN i > ? THEN 'hi' ELSE 'lo' END AS b, COUNT(*) FROM FluxoraProbe.T GROUP BY CASE WHEN i > ? THEN 'hi' ELSE 'lo' END  -- params=[3, 3]",
+  "status": "ok",
+  "result": [
+   [
+    "hi",
+    2
+   ],
+   [
+    "lo",
+    3
+   ]
+  ]
+ },
+ "q3.param_in_in_list": {
+  "sql": "SELECT id FROM FluxoraProbe.T WHERE id IN (?, ?, ?) ORDER BY id  -- params=[1, 3, 5]",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    3
+   ],
+   [
+    5
+   ]
+  ]
+ },
+ "q3.param_in_like": {
+  "sql": "SELECT id FROM FluxoraProbe.T WHERE s LIKE ? ORDER BY id  -- params=['%y%']",
+  "status": "ok",
+  "result": [
+   [
+    4
+   ]
+  ]
+ },
+ "q3.param_in_having": {
+  "sql": "SELECT grp, COUNT(*) FROM FluxoraProbe.T GROUP BY grp HAVING COUNT(*) > ?  -- params=[1]",
+  "status": "ok",
+  "result": [
+   [
+    "A",
+    2
+   ],
+   [
+    "B",
+    2
+   ]
+  ]
+ },
+ "q3.param_typed_select": {
+  "sql": "SELECT ? AS v  -- params=[1.5]",
+  "status": "ok",
+  "result": [
+   [
+    1.5
+   ]
+  ]
+ },
+ "q3.is_null_on_expression_in_select": {
+  "sql": "SELECT (i + 1) IS NULL FROM FluxoraProbe.T",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-25>:<Input encountered after end of query>]"
+ },
+ "q3.case_is_null_in_select": {
+  "sql": "SELECT CASE WHEN i + 1 IS NULL THEN 1 ELSE 0 END FROM FluxoraProbe.T ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ],
+   [
+    0
+   ],
+   [
+    1
+   ],
+   [
+    0
+   ],
+   [
+    0
+   ]
+  ]
+ },
+ "q4.lowercase_table_and_columns": {
+  "sql": "SELECT ID, AMOUNT FROM fluxoraprobe.t WHERE id = 1",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    "10.10"
+   ]
+  ]
+ },
+ "q4.default_schema_for_unqualified_create": {
+  "sql": "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'FxProbeUnqualified'",
+  "status": "ok",
+  "result": [
+   [
+    "SQLUser",
+    "FxProbeUnqualified"
+   ]
+  ]
+ },
+ "q4.quoted_reserved_word_alias": {
+  "sql": "SELECT id AS \"Order\" FROM FluxoraProbe.T WHERE id = 1",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q4.unquoted_reserved_word_alias": {
+  "sql": "SELECT id AS Order FROM FluxoraProbe.T WHERE id = 1",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q4.quoted_mixed_case_column_name": {
+  "sql": "SELECT \"Id\" FROM FluxoraProbe.T WHERE id = 1",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q4.result_column_name_case": {
+  "sql": "SELECT id, Amount AS RevenueTotal FROM FluxoraProbe.T WHERE id = 1",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    "10.10"
+   ]
+  ]
+ },
+ "q4.cursor_description_names": {
+  "result": [
+   "id",
+   "RevenueTotal",
+   "lower_alias"
+  ]
+ },
+ "q4.columns_metadata": {
+  "sql": "SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION  -- params=['FluxoraProbe', 'T']",
+  "status": "ok",
+  "result": [
+   [
+    "id",
+    "integer",
+    10,
+    0,
+    "YES"
+   ],
+   [
+    "grp",
+    "varchar",
+    null,
+    null,
+    "YES"
+   ],
+   [
+    "s",
+    "varchar",
+    null,
+    null,
+    "YES"
+   ],
+   [
+    "amount",
+    "numeric",
+    10,
+    2,
+    "YES"
+   ],
+   [
+    "d",
+    "double",
+    15,
+    null,
+    "YES"
+   ],
+   [
+    "i",
+    "integer",
+    10,
+    0,
+    "YES"
+   ]
+  ]
+ },
+ "q5.empty_string_round_trip": {
+  "sql": "SELECT id, s FROM FluxoraProbe.T WHERE id IN (2, 3) ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    2,
+    ""
+   ],
+   [
+    3,
+    null
+   ]
+  ]
+ },
+ "q5.empty_string_is_null": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.T WHERE s IS NULL",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q5.empty_string_equals_literal": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.T WHERE s = ''",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q5.empty_string_equals_param": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.T WHERE s = ?  -- params=['']",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q5.length_of_empty": {
+  "sql": "SELECT LENGTH(s), CHAR_LENGTH(s) FROM FluxoraProbe.T WHERE id = 2",
+  "status": "ok",
+  "result": [
+   [
+    0,
+    0
+   ]
+  ]
+ },
+ "q5.empty_literal_in_select": {
+  "sql": "SELECT '' AS e, LENGTH('') AS n",
+  "status": "ok",
+  "result": [
+   [
+    "",
+    0
+   ]
+  ]
+ },
+ "q5.concat_with_null": {
+  "sql": "SELECT s || 'q' FROM FluxoraProbe.T WHERE id IN (2, 3) ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    "q"
+   ],
+   [
+    null
+   ]
+  ]
+ },
+ "q5.integer_division": {
+  "sql": "SELECT 7/2, -7/2, 7\\2, -7\\2, 7 # 2, -7 # 2",
+  "status": "ok",
+  "result": [
+   [
+    "3.500000000000000000",
+    "-3.500000000000000000",
+    3,
+    -3,
+    1,
+    1
+   ]
+  ]
+ },
+ "q5.integer_column_division": {
+  "sql": "SELECT i / 2 FROM FluxoraProbe.T WHERE id = 1",
+  "status": "ok",
+  "result": [
+   [
+    "3.500000000000000000"
+   ]
+  ]
+ },
+ "q5.division_by_zero": {
+  "sql": "SELECT 1/0",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "q5.division_by_zero_column": {
+  "sql": "SELECT i / (i - i) FROM FluxoraProbe.T WHERE id = 1",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "q5.avg_of_integers": {
+  "sql": "SELECT AVG(i) FROM FluxoraProbe.T WHERE id IN (1, 2)",
+  "status": "ok",
+  "result": [
+   [
+    "4.500000000000000000"
+   ]
+  ]
+ },
+ "q5.avg_of_numeric": {
+  "sql": "SELECT AVG(amount), SUM(amount) FROM FluxoraProbe.T",
+  "status": "ok",
+  "result": [
+   [
+    "27.77500000000000000",
+    "111.10"
+   ]
+  ]
+ },
+ "q5.numeric_divide_scale": {
+  "sql": "SELECT CAST(1 AS NUMERIC(10,2)) / 3",
+  "status": "ok",
+  "result": [
+   [
+    "0.3333333333333333333"
+   ]
+  ]
+ },
+ "q5.numeric_overflow_cast": {
+  "sql": "SELECT CAST(123456.789 AS NUMERIC(5,2))",
+  "status": "ok",
+  "result": [
+   [
+    "123456.79"
+   ]
+  ]
+ },
+ "q5.invalid_cast_string_to_int": {
+  "sql": "SELECT CAST('abc' AS INTEGER)",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "q5.int_overflow": {
+  "sql": "SELECT CAST(2147483647 AS INTEGER) + 1",
+  "status": "ok",
+  "result": [
+   [
+    2147483648
+   ]
+  ]
+ },
+ "q5.null_order_asc": {
+  "sql": "SELECT s FROM FluxoraProbe.T ORDER BY s ASC",
+  "status": "ok",
+  "result": [
+   [
+    null
+   ],
+   [
+    ""
+   ],
+   [
+    "x"
+   ],
+   [
+    "y"
+   ],
+   [
+    "z"
+   ]
+  ]
+ },
+ "q5.null_order_desc": {
+  "sql": "SELECT s FROM FluxoraProbe.T ORDER BY s DESC",
+  "status": "ok",
+  "result": [
+   [
+    "z"
+   ],
+   [
+    "y"
+   ],
+   [
+    "x"
+   ],
+   [
+    ""
+   ],
+   [
+    null
+   ]
+  ]
+ },
+ "q5.nulls_last_syntax": {
+  "sql": "SELECT s FROM FluxoraProbe.T ORDER BY s ASC NULLS LAST",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-25>:<Input encountered after end of query>]"
+ },
+ "q5.nulls_first_syntax": {
+  "sql": "SELECT s FROM FluxoraProbe.T ORDER BY s DESC NULLS FIRST",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-25>:<Input encountered after end of query>]"
+ },
+ "q5.group_by_null_key": {
+  "sql": "SELECT grp, COUNT(*) FROM FluxoraProbe.T GROUP BY grp ORDER BY grp",
+  "status": "ok",
+  "result": [
+   [
+    null,
+    1
+   ],
+   [
+    "A",
+    2
+   ],
+   [
+    "B",
+    2
+   ]
+  ]
+ },
+ "q5.count_star_vs_column": {
+  "sql": "SELECT COUNT(*), COUNT(i), COUNT(s), SUM(i) FROM FluxoraProbe.T",
+  "status": "ok",
+  "result": [
+   [
+    5,
+    4,
+    4,
+    16
+   ]
+  ]
+ },
+ "q5.aggregates_on_empty_input": {
+  "sql": "SELECT COUNT(*), SUM(i), AVG(i), MAX(i) FROM FluxoraProbe.T WHERE 1 = 0",
+  "status": "ok",
+  "result": [
+   [
+    0,
+    null,
+    null,
+    null
+   ]
+  ]
+ },
+ "q5.group_by_on_empty_input": {
+  "sql": "SELECT grp, COUNT(*) FROM FluxoraProbe.T WHERE 1 = 0 GROUP BY grp",
+  "status": "ok",
+  "result": []
+ },
+ "q5.having_without_group_by_empty": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.T WHERE 1 = 0 HAVING COUNT(*) = 0",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "q5.string_comparison_case": {
+  "sql": "SELECT CASE WHEN 'a' = 'A' THEN 1 ELSE 0 END",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "q5.string_column_case_compare": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.T WHERE s = 'X'",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q5.string_order_case": {
+  "sql": "SELECT TOP ALL w FROM (SELECT 'b' AS w UNION ALL SELECT 'B' UNION ALL SELECT 'a' UNION ALL SELECT 'A') ORDER BY w",
+  "status": "ok",
+  "result": [
+   [
+    "A"
+   ],
+   [
+    "B"
+   ],
+   [
+    "a"
+   ],
+   [
+    "b"
+   ]
+  ]
+ },
+ "q5.trailing_space_compare": {
+  "sql": "SELECT CASE WHEN 'a' = 'a ' THEN 1 ELSE 0 END",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "q5.distinct_case": {
+  "sql": "SELECT COUNT(DISTINCT w) FROM (SELECT 'b' AS w UNION ALL SELECT 'B')",
+  "status": "ok",
+  "result": [
+   [
+    2
+   ]
+  ]
+ },
+ "q6.negative_zero_stored": {
+  "sql": "SELECT d FROM FluxoraProbe.T WHERE id = 2",
+  "status": "ok",
+  "result": [
+   [
+    -0.0
+   ]
+  ]
+ },
+ "q6.negative_zero_literal": {
+  "sql": "SELECT -0.0, CAST(-0.0 AS DOUBLE)",
+  "status": "ok",
+  "result": [
+   [
+    0,
+    0.0
+   ]
+  ]
+ },
+ "q6.negative_zero_equals_zero": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.T WHERE d = 0",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q6.insert_nan_param": {
+  "sql": "INSERT INTO FluxoraProbe.T (id, d) VALUES (?, ?)  -- params=[90, nan]",
+  "status": "ok",
+  "result": null
+ },
+ "q6.read_nan_back": {
+  "sql": "SELECT id, d FROM FluxoraProbe.T WHERE id = 90",
+  "status": "ok",
+  "result": [
+   [
+    90,
+    NaN
+   ]
+  ]
+ },
+ "q6.insert_inf_param": {
+  "sql": "INSERT INTO FluxoraProbe.T (id, d) VALUES (?, ?)  -- params=[91, inf]",
+  "status": "ok",
+  "result": null
+ },
+ "q6.read_inf_back": {
+  "sql": "SELECT id, d FROM FluxoraProbe.T WHERE id = 91",
+  "status": "ok",
+  "result": [
+   [
+    91,
+    Infinity
+   ]
+  ]
+ },
+ "q6.double_literal_division_by_zero": {
+  "sql": "SELECT CAST(1 AS DOUBLE) / 0",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "q6.current_timestamp_vs_utc": {
+  "sql": "SELECT CURRENT_TIMESTAMP, GETUTCDATE(), NOW()",
+  "status": "ok",
+  "result": [
+   [
+    "2026-11-18 13:13:30",
+    "2026-11-18 13:13:30",
+    "2026-11-18 13:13:30"
+   ]
+  ]
+ },
+ "q6.timestamp_with_offset_literal": {
+  "sql": "SELECT CAST('2026-11-18 10:00:00' AS TIMESTAMP), CAST('2026-11-18T10:00:00+02:00' AS TIMESTAMP)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "q6.timestamp_python_type": {
+  "sql": "SELECT CAST('2026-11-18 10:00:00.123456' AS TIMESTAMP)",
+  "status": "ok",
+  "result": [
+   [
+    "2026-11-18 10:00:00.123456"
+   ]
+  ]
+ },
+ "q6.python_types_returned": {
+  "result": [
+   "datetime",
+   "str",
+   "Decimal",
+   "float",
+   "int",
+   "bool"
+  ]
+ },
+ "q9.group_by_default_collation": {
+  "sql": "SELECT w, COUNT(*) FROM FluxoraProbe.Words GROUP BY w ORDER BY w",
+  "status": "ok",
+  "result": [
+   [
+    " APPLE",
+    1
+   ],
+   [
+    "APPLE",
+    4
+   ],
+   [
+    "BANANA",
+    2
+   ]
+  ]
+ },
+ "q9.group_by_exact_function": {
+  "sql": "SELECT %EXACT(w), COUNT(*) FROM FluxoraProbe.Words GROUP BY %EXACT(w) ORDER BY 1",
+  "status": "ok",
+  "result": [
+   [
+    " apple",
+    1
+   ],
+   [
+    "APPLE",
+    1
+   ],
+   [
+    "Apple",
+    1
+   ],
+   [
+    "Banana",
+    1
+   ],
+   [
+    "apple",
+    1
+   ],
+   [
+    "apple ",
+    1
+   ],
+   [
+    "banana",
+    1
+   ]
+  ]
+ },
+ "q9.group_by_exact_column": {
+  "sql": "SELECT wx, COUNT(*) FROM FluxoraProbe.Words GROUP BY wx ORDER BY wx",
+  "status": "ok",
+  "result": [
+   [
+    " apple",
+    1
+   ],
+   [
+    "APPLE",
+    1
+   ],
+   [
+    "Apple",
+    1
+   ],
+   [
+    "Banana",
+    1
+   ],
+   [
+    "apple",
+    1
+   ],
+   [
+    "apple ",
+    1
+   ],
+   [
+    "banana",
+    1
+   ]
+  ]
+ },
+ "q9.distinct_default": {
+  "sql": "SELECT DISTINCT w FROM FluxoraProbe.Words",
+  "status": "ok",
+  "result": [
+   [
+    "APPLE"
+   ],
+   [
+    "BANANA"
+   ],
+   [
+    " APPLE"
+   ]
+  ]
+ },
+ "q9.distinct_exact_column": {
+  "sql": "SELECT DISTINCT wx FROM FluxoraProbe.Words",
+  "status": "ok",
+  "result": [
+   [
+    "apple"
+   ],
+   [
+    "Apple"
+   ],
+   [
+    "APPLE"
+   ],
+   [
+    "banana"
+   ],
+   [
+    "apple "
+   ],
+   [
+    " apple"
+   ],
+   [
+    "Banana"
+   ]
+  ]
+ },
+ "q9.count_distinct_default_vs_exact": {
+  "sql": "SELECT COUNT(DISTINCT w), COUNT(DISTINCT %EXACT(w)), COUNT(DISTINCT wx) FROM FluxoraProbe.Words",
+  "status": "ok",
+  "result": [
+   [
+    3,
+    7,
+    7
+   ]
+  ]
+ },
+ "q9.equality_default": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Words WHERE w = 'APPLE'",
+  "status": "ok",
+  "result": [
+   [
+    4
+   ]
+  ]
+ },
+ "q9.equality_exact_column": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Words WHERE wx = 'APPLE'",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "q9.equality_param_default": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Words WHERE w = ?  -- params=['apple']",
+  "status": "ok",
+  "result": [
+   [
+    4
+   ]
+  ]
+ },
+ "q9.trailing_space_equality_default": {
+  "sql": "SELECT id FROM FluxoraProbe.Words WHERE w = 'apple' ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ],
+   [
+    1
+   ],
+   [
+    2
+   ],
+   [
+    4
+   ]
+  ]
+ },
+ "q9.order_by_default": {
+  "sql": "SELECT w FROM FluxoraProbe.Words ORDER BY w, id",
+  "status": "ok",
+  "result": [
+   [
+    " apple"
+   ],
+   [
+    "apple"
+   ],
+   [
+    "Apple"
+   ],
+   [
+    "APPLE"
+   ],
+   [
+    "apple "
+   ],
+   [
+    "banana"
+   ],
+   [
+    "Banana"
+   ]
+  ]
+ },
+ "q9.order_by_exact_column": {
+  "sql": "SELECT wx FROM FluxoraProbe.Words ORDER BY wx",
+  "status": "ok",
+  "result": [
+   [
+    " apple"
+   ],
+   [
+    "APPLE"
+   ],
+   [
+    "Apple"
+   ],
+   [
+    "Banana"
+   ],
+   [
+    "apple"
+   ],
+   [
+    "apple "
+   ],
+   [
+    "banana"
+   ]
+  ]
+ },
+ "q9.like_default": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Words WHERE w LIKE 'APP%'",
+  "status": "ok",
+  "result": [
+   [
+    4
+   ]
+  ]
+ },
+ "q9.in_default": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Words WHERE w IN ('APPLE')",
+  "status": "ok",
+  "result": [
+   [
+    4
+   ]
+  ]
+ },
+ "q9.self_join_default": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Words a JOIN FluxoraProbe.Words b ON a.w = b.w",
+  "status": "ok",
+  "result": [
+   [
+    21
+   ]
+  ]
+ },
+ "q9.self_join_exact": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Words a JOIN FluxoraProbe.Words b ON a.wx = b.wx",
+  "status": "ok",
+  "result": [
+   [
+    7
+   ]
+  ]
+ },
+ "q9.union_distinct_default": {
+  "sql": "SELECT COUNT(*) FROM (SELECT w FROM FluxoraProbe.Words UNION SELECT w FROM FluxoraProbe.Words)",
+  "status": "ok",
+  "result": [
+   [
+    3
+   ]
+  ]
+ },
+ "q9.max_default": {
+  "sql": "SELECT MAX(w), MIN(w) FROM FluxoraProbe.Words",
+  "status": "ok",
+  "result": [
+   [
+    "BANANA",
+    " APPLE"
+   ]
+  ]
+ },
+ "q9.namespace_default_collation": {
+  "sql": "SELECT COLLATION_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'Words' ORDER BY ORDINAL_POSITION  -- params=['FluxoraProbe']",
+  "status": "ok",
+  "result": [
+   [
+    null
+   ],
+   [
+    null
+   ],
+   [
+    null
+   ]
+  ]
+ },
+ "q9.date_type_python": {
+  "sql": "SELECT CAST('2026-11-18' AS DATE), {d '2026-11-18'}",
+  "status": "ok",
+  "result": [
+   [
+    "2026-11-18",
+    "2026-11-18"
+   ]
+  ]
+ },
+ "q9.group_by_ordinal_check": {
+  "sql": "SELECT w, COUNT(*) FROM FluxoraProbe.Words GROUP BY 1",
+  "status": "ok",
+  "result": [
+   [
+    "apple",
+    7
+   ]
+  ]
+ },
+ "q7.insert_rows": {
+  "result": {
+   "rows": 500000,
+   "seconds": 6.97,
+   "rows_per_s": 71723
+  }
+ },
+ "q7.sum_double_serial": {
+  "sql": "SELECT SUM(d), AVG(d) FROM FluxoraProbe.Big",
+  "result": {
+   "values": [
+    [
+     -187000377079.71127,
+     -374000.75415942253
+    ],
+    [
+     -187000377079.71127,
+     -374000.75415942253
+    ],
+    [
+     -187000377079.71127,
+     -374000.75415942253
+    ]
+   ],
+   "seconds": [
+    0.0624,
+    0.0501,
+    0.0429
+   ]
+  }
+ },
+ "q7.sum_double_parallel": {
+  "sql": "SELECT SUM(d), AVG(d) FROM %PARALLEL FluxoraProbe.Big",
+  "result": {
+   "values": [
+    [
+     -187000377079.71127,
+     -374000.75415942253
+    ],
+    [
+     -187000377079.71127,
+     -374000.75415942253
+    ],
+    [
+     -187000377079.71127,
+     -374000.75415942253
+    ]
+   ],
+   "seconds": [
+    0.0521,
+    0.0417,
+    0.042
+   ]
+  }
+ },
+ "q7.sum_numeric_serial": {
+  "sql": "SELECT SUM(amount) FROM FluxoraProbe.Big",
+  "result": {
+   "values": [
+    [
+     "250128288.61"
+    ],
+    [
+     "250128288.61"
+    ],
+    [
+     "250128288.61"
+    ]
+   ],
+   "seconds": [
+    0.0455,
+    0.0378,
+    0.0383
+   ]
+  }
+ },
+ "q7.sum_numeric_parallel": {
+  "sql": "SELECT SUM(amount) FROM %PARALLEL FluxoraProbe.Big",
+  "result": {
+   "values": [
+    [
+     "250128288.61"
+    ],
+    [
+     "250128288.61"
+    ],
+    [
+     "250128288.61"
+    ]
+   ],
+   "seconds": [
+    0.0482,
+    0.0376,
+    0.0395
+   ]
+  }
+ },
+ "q7.group_sum_serial": {
+  "sql": "SELECT k, SUM(d) FROM FluxoraProbe.Big GROUP BY k ORDER BY k",
+  "result": {
+   "values": "2 groups (rows elided)",
+   "seconds": [
+    0.0852,
+    0.0674,
+    0.0597
+   ]
+  }
+ },
+ "q7.group_sum_parallel": {
+  "sql": "SELECT k, SUM(d) FROM %PARALLEL FluxoraProbe.Big GROUP BY k ORDER BY k",
+  "result": {
+   "values": "2 groups (rows elided)",
+   "seconds": [
+    0.0693,
+    0.0647,
+    0.0649
+   ]
+  }
+ },
+ "q7.group_sum_serial_vs_parallel": {
+  "result": {
+   "groups": 1000,
+   "groups_differing": 130,
+   "max_relative_diff": 1.617690180828498e-14
+  }
+ },
+ "q7.python_fsum_reference": {
+  "result": -187000377079.7109
+ },
+ "q8.fetch_timing": {
+  "result": {
+   "10000": {
+    "rows": 10000,
+    "execute_s": 0.0308,
+    "fetch_s": 0.0114,
+    "rows_per_s": 237359,
+    "pandas_build_s": 0.0044
+   },
+   "100000": {
+    "rows": 100000,
+    "execute_s": 0.0019,
+    "fetch_s": 0.1101,
+    "rows_per_s": 892321,
+    "pandas_build_s": 0.0465
+   },
+   "500000": {
+    "rows": 500000,
+    "execute_s": 0.0027,
+    "fetch_s": 0.4825,
+    "rows_per_s": 1030581,
+    "pandas_build_s": 0.272
+   }
+  }
+ },
+ "q8.in_list_1000_literals": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Big WHERE id IN (...1000 literals)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "q8.in_list_5000_literals": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Big WHERE id IN (...5000 literals)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "q8.in_list_1000_params": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Big WHERE id IN (...1000 params)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "q8.in_list_5000_params": {
+  "sql": "SELECT COUNT(*) FROM FluxoraProbe.Big WHERE id IN (...5000 params)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "q8.union_all_50_arms (2879 chars)": {
+  "sql": "UNION ALL chain",
+  "status": "ok",
+  "result": [
+   [
+    50
+   ]
+  ]
+ },
+ "q8.union_all_200_arms (11679 chars)": {
+  "sql": "UNION ALL chain",
+  "status": "ok",
+  "result": [
+   [
+    200
+   ]
+  ]
+ },
+ "q8.union_all_500_arms (29379 chars)": {
+  "sql": "UNION ALL chain",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "q10.in_list_10_literals": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    10
+   ]
+  ]
+ },
+ "q10.in_list_10_params": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    10
+   ]
+  ]
+ },
+ "q10.in_list_50_literals": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    50
+   ]
+  ]
+ },
+ "q10.in_list_50_params": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    50
+   ]
+  ]
+ },
+ "q10.in_list_100_literals": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    100
+   ]
+  ]
+ },
+ "q10.in_list_100_params": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    100
+   ]
+  ]
+ },
+ "q10.in_list_200_literals": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    200
+   ]
+  ]
+ },
+ "q10.in_list_200_params": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    200
+   ]
+  ]
+ },
+ "q10.in_list_400_literals": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    400
+   ]
+  ]
+ },
+ "q10.in_list_400_params": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    400
+   ]
+  ]
+ },
+ "q10.in_list_800_literals": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    800
+   ]
+  ]
+ },
+ "q10.in_list_800_params": {
+  "sql": "IN list",
+  "status": "ok",
+  "result": [
+   [
+    800
+   ]
+  ]
+ },
+ "q10.union_all_250_arms_14629_chars": {
+  "sql": "UNION ALL chain",
+  "status": "ok",
+  "result": [
+   [
+    250
+   ]
+  ]
+ },
+ "q10.union_all_300_arms_17579_chars": {
+  "sql": "UNION ALL chain",
+  "status": "ok",
+  "result": [
+   [
+    300
+   ]
+  ]
+ },
+ "q10.union_all_350_arms_20529_chars": {
+  "sql": "UNION ALL chain",
+  "status": "ok",
+  "result": [
+   [
+    350
+   ]
+  ]
+ },
+ "q10.union_all_400_arms_23479_chars": {
+  "sql": "UNION ALL chain",
+  "status": "ok",
+  "result": [
+   [
+    400
+   ]
+  ]
+ },
+ "q10.union_all_450_arms_26429_chars": {
+  "sql": "UNION ALL chain",
+  "status": "ok",
+  "result": [
+   [
+    450
+   ]
+  ]
+ },
+ "q10.case_500_branches_11296_chars": {
+  "sql": "wide CASE",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-202>:<One or more closing parentheses ')' missing>]"
+ },
+ "q10.case_1000_branches_22796_chars": {
+  "sql": "wide CASE",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-202>:<One or more closing parentheses ')' missing>]"
+ },
+ "q10.case_2000_branches_47796_chars": {
+  "sql": "wide CASE",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-202>:<One or more closing parentheses ')' missing>]"
+ },
+ "q10.nested_subqueries_10": {
+  "sql": "nesting",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ]
+  ]
+ },
+ "q10.nested_subqueries_30": {
+  "sql": "nesting",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ]
+  ]
+ },
+ "q10.nested_subqueries_60": {
+  "sql": "nesting",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ]
+  ]
+ }
+}
