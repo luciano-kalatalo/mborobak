@@ -2,7 +2,9 @@
 
 Scientificloud · Mborobak · 2026-11-18 · first run of the [benchmark suite](../benchmarks/README.md) (scope §8.3)
 
-Raw data: [`benchmarks/results/2026-11-18/`](../benchmarks/results/2026-11-18/) (`summary.md`, `raw.json`, `plans.json`, `environment.json`).
+Raw data: [`benchmarks/results/2026-11-18/`](../benchmarks/results/2026-11-18/) (first run, commit `8bf271d`) and [`benchmarks/results/2026-11-18-optimized/`](../benchmarks/results/2026-11-18-optimized/) (after the conversion work in §5, commit `580ae0c`, 9 measured runs). Each has `summary.md`, `raw.json`, `plans.json` and `environment.json`.
+
+**In short:** every Mborobak result matches hand-written SQL. After §5, queries returning few rows run at the speed of hand-written SQL, within noise. Overhead is left only where many rows come back: about +20% at 100k rows returned and about +90% at 1M (fastest runs). Measured both ways, the scope's headline target (median ≤ 10% on queries of 100 ms or more) is met: −1.6% median of medians, +2.2% median of fastest runs. That median hides the large-result cost, so the per-family table in §5 is the honest view.
 
 ## 1. Setup
 
@@ -67,10 +69,45 @@ For `SUM(amount) … ORDER BY revenue DESC`, the IRIS driver returned the sums a
 
 ## 4. Next steps
 
-1. **Faster result conversion:**
-   - Skip the conversion when the driver already returns the schema type (most `int` and `float` columns).
-   - Quantize decimals only when the scale differs.
-   - Convert column by column instead of value by value.
-2. **Cheaper `Row` objects:** one `Row` subclass per result schema, with the field names on the class instead of on every row.
-3. **Re-run this benchmark** after those changes and against IRIS build 154 (D1).
-4. **More runs:** add more measured runs, and pin parallel execution on and off, to reduce the noise seen in §1.
+These were the steps after the first run. Steps 1 and 2 are done (§5).
+
+1. ~~**Faster result conversion**~~ Done.
+2. ~~**Cheaper `Row` objects**~~ Done.
+3. **Re-run this benchmark against IRIS build 154** (D1).
+4. **Pin parallel execution on and off.** IRIS switched plans between runs in the second run (§5.3).
+5. **Large results.** What remains is about 0.9 µs per returned row and column beyond the driver's own fetch. Next candidates:
+   - skip `Decimal.quantize` when a column comes straight from a table column of the same scale;
+   - let `toPandas()` build arrays from the converted columns without `Row` objects (it already skips rows);
+   - offer a faster transfer path later (scope P2).
+
+## 5. After optimizing result conversion (commits `4feda43`, `580ae0c`)
+
+### 5.1 What changed
+
+- Results are converted column by column. A column the driver already returns in the schema type (`int`, `float`, `str`, timestamps) is not touched. Other columns are converted by mapping C-level callables: `float`, `date.fromisoformat` (the driver returns `DATE` as text), and a partial of `Decimal.quantize`.
+- Columns are extracted with `operator.itemgetter` instead of `zip(*rows)`. On 1M rows, transposing alone took 421 ms; the four extractions take 34 ms.
+- Result rows use one `Row` subclass per schema, with the field names on the class, built by mapping a partial of `tuple.__new__`. On 1M rows: 715 ms → 234 ms.
+- `toPandas()` takes the converted columns directly.
+
+Measured without IRIS, on 1M rows of int, decimal, string and date, converting values and building rows went from about 1,216 ms to 888 ms, and to 305 ms when no column needs converting.
+
+### 5.2 Results by family (Mborobak default vs. `native_exact`, fastest of 9 runs)
+
+| Family | Scenario | 100k rows: before → after | 1M rows: before → after | Rows returned at 1M |
+|--------|----------|--------------------------:|------------------------:|--------------------:|
+| filter | filter_count_string | +3% → +0% | +4% → −0% | 1 |
+| filter | lookup_count_indexed_string | within noise (< 2 ms) | within noise | 1 |
+| filter | filter_fetch_numeric | +34% → **+19%** | +53% → **+24%** | 99,538 |
+| projection | projection_fetch | +119% → **+56%** | +151% → **+90%** | 1,000,000 |
+| aggregation | agg_by_int | +23% → +14% | unreliable (§5.3) | 64,511 |
+| aggregation | agg_by_string | +2% → +2% | +6% → −2% | 3 |
+| join | join_agg_sort | +1% → −0% | +3% → −3% | 30 |
+| sort | sort_limit_double | Mborobak faster (parallel plan, §3.3) | same | 100 |
+| chain | chain_scope_example | −15% → +8% | −4% → −1% | 20 |
+
+"Before" uses medians from the first run (5 runs), "after" the fastest of 9 runs; the median-based "after" numbers are in `summary.md` and differ by a few points.
+
+### 5.3 Noise: IRIS switches plans between runs
+
+In the second run, `agg_by_int` at 1M rows took either about 190 ms or about 510 ms. That happened to the hand-written SQL and to Mborobak alike: Mborobak's runs were 508, 513, 512, then 197, 197, 190, 188, 205, 189 ms. That is consistent with IRIS choosing a parallel or a serial plan from run to run (`AutoParallel` is on), so this scenario's comparison is not reliable until parallel execution is pinned (§4, step 4).
+
