@@ -1,0 +1,1698 @@
+{
+ "meta.version": {
+  "result": "IRIS for UNIX (Ubuntu Server LTS for ARM64 Containers) 2026.2 (Build 221U) Fri Jun 26 2026 09:59:12 EDT"
+ },
+ "o1.ddl.default": {
+  "sql": "s_default VARCHAR(20)",
+  "status": "ok",
+  "result": null
+ },
+ "o1.ddl.exact_kw": {
+  "sql": "s_exact VARCHAR(20) %EXACT",
+  "status": "ok",
+  "result": null
+ },
+ "o1.ddl.collate_exact": {
+  "sql": "s_cexact VARCHAR(20) COLLATE %EXACT",
+  "status": "ok",
+  "result": null
+ },
+ "o1.ddl.sqlstring": {
+  "sql": "s_sqlstring VARCHAR(20) COLLATE SQLSTRING",
+  "status": "ok",
+  "result": null
+ },
+ "o1.ddl.truncate": {
+  "sql": "s_trunc VARCHAR(20) COLLATE %TRUNCATE(5)",
+  "status": "ok",
+  "result": null
+ },
+ "o1.table_columns": {
+  "result": [
+   "s_default VARCHAR(20)",
+   "s_exact VARCHAR(20) %EXACT",
+   "s_cexact VARCHAR(20) COLLATE %EXACT",
+   "s_sqlstring VARCHAR(20) COLLATE SQLSTRING",
+   "s_trunc VARCHAR(20) COLLATE %TRUNCATE(5)"
+  ]
+ },
+ "o1.info_columns.collation_name": {
+  "sql": "SELECT COLUMN_NAME, COLLATION_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'Coll' ORDER BY ORDINAL_POSITION  -- params=['MborobakProbe']",
+  "status": "ok",
+  "result": [
+   [
+    "id",
+    null
+   ],
+   [
+    "s_default",
+    null
+   ],
+   [
+    "s_exact",
+    null
+   ],
+   [
+    "s_cexact",
+    null
+   ],
+   [
+    "s_sqlstring",
+    null
+   ],
+   [
+    "s_trunc",
+    null
+   ]
+  ]
+ },
+ "o1.info_columns.all_column_names": {
+  "result": [
+   "TABLE_CATALOG",
+   "TABLE_SCHEMA",
+   "TABLE_NAME",
+   "COLUMN_NAME",
+   "ORDINAL_POSITION",
+   "DTD_IDENTIFIER",
+   "DOMAIN_CATALOG",
+   "DOMAIN_SCHEMA",
+   "DOMAIN_NAME",
+   "COLUMN_DEFAULT",
+   "IS_NULLABLE",
+   "IS_SELF_REFERENCING",
+   "IS_IDENTITY",
+   "IDENTITY_GENERATION",
+   "IDENTITY_START",
+   "IDENTITY_INCREMENT",
+   "IDENTITY_MAXIMUM",
+   "IDENTITY_MINIMUM",
+   "IDENTITY_CYCLE",
+   "IS_GENERATED",
+   "GENERATION_EXPRESSION",
+   "IS_UPDATABLE",
+   "DATA_TYPE",
+   "CHARACTER_MAXIMUM_LENGTH",
+   "CHARACTER_OCTET_LENGTH",
+   "NUMERIC_PRECISION",
+   "NUMERIC_PRECISION_RADIX",
+   "NUMERIC_SCALE",
+   "DATETIME_PRECISION",
+   "CHARACTER_SET_CATALOG",
+   "CHARACTER_SET_SCHEMA",
+   "CHARACTER_SET_NAME",
+   "COLLATION_CATALOG",
+   "COLLATION_SCHEMA",
+   "COLLATION_NAME",
+   "DESCRIPTION",
+   "AUTO_INCREMENT",
+   "UNIQUE_COLUMN",
+   "PRIMARY_KEY",
+   "COLLECTION_TYPE",
+   "odbctype"
+  ]
+ },
+ "o1.info_tables.all_column_names": {
+  "result": [
+   "TABLE_CATALOG",
+   "TABLE_SCHEMA",
+   "TABLE_NAME",
+   "TABLE_TYPE",
+   "SELF_REFERENCING_COLUMN_NAME",
+   "REFERENCE_GENERATION",
+   "USER_DEFINED_TYPE_CATALOG",
+   "USER_DEFINED_TYPE_SCHEMA",
+   "USER_DEFINED_TYPE_NAME",
+   "IS_INSERTABLE_INTO",
+   "IS_TYPED",
+   "CLASSNAME",
+   "DESCRIPTION",
+   "OWNER",
+   "IS_SHARDED",
+   "IS_PARTITIONED"
+  ]
+ },
+ "o1.info_tables.classname": {
+  "sql": "SELECT CLASSNAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'Coll'  -- params=['MborobakProbe']",
+  "status": "ok",
+  "result": [
+   [
+    "MborobakProbe.Coll"
+   ]
+  ]
+ },
+ "o1.classname": {
+  "result": "MborobakProbe.Coll"
+ },
+ "o1.compiled_property.all_column_names": {
+  "result": [
+   "parent",
+   "ID1",
+   "Aliases",
+   "Calculated",
+   "Cardinality",
+   "ClientName",
+   "Collection",
+   "CompilerGenerated",
+   "ComputeDependency",
+   "ComputeTriggers",
+   "_Deferred",
+   "Deprecated",
+   "Description",
+   "DirectRefOnGet",
+   "DirectRefOnSet",
+   "Final",
+   "Id",
+   "_Identity",
+   "InheritedId",
+   "InitialExpression",
+   "Internal",
+   "Inverse",
+   "KeywordError",
+   "KeywordModified",
+   "MultiDimensional",
+   "Name",
+   "NoModBit",
+   "NotInheritable",
+   "OnDelete",
+   "Origin",
+   "Parameters",
+   "Private",
+   "ReadOnly",
+   "Relationship",
+   "Required",
+   "RuntimeType",
+   "SequenceNumber",
+   "ServerOnly",
+   "SqlCollation",
+   "SqlColumnNumber",
+   "SqlComputeCode",
+   "SqlComputeOnChange",
+   "SqlComputed",
+   "SqlFieldName",
+   "SqlListDelimiter",
+   "SqlListType",
+   "Storable",
+   "Transient",
+   "Type"
+  ]
+ },
+ "o1.compiled_property.collation": {
+  "sql": "SELECT Name, Collation, SqlFieldName FROM %Dictionary.CompiledProperty WHERE parent = ? ORDER BY Name  -- params=['MborobakProbe.Coll']",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-29>:<Field not found in the applicable tables>]"
+ },
+ "o1.compiled_property.parameters_table": {
+  "sql": "SELECT parent, Name, Parameters FROM %Dictionary.CompiledProperty_Parameters WHERE parent %STARTSWITH ? ORDER BY parent  -- params=['MborobakProbe.Coll']",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-30>:<Table or view not found>]"
+ },
+ "o1.compiled_property.parameters_child": {
+  "sql": "SELECT p.Name, x.element_key, x.Parameters FROM %Dictionary.CompiledProperty p JOIN %Dictionary.CompiledProperty_Parameters x ON x.CompiledProperty = p.ID WHERE p.parent = ? ORDER BY p.Name  -- params=['MborobakProbe.Coll']",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-30>:<Table or view not found>]"
+ },
+ "o1.property_definition.collation": {
+  "sql": "SELECT Name, Collation FROM %Dictionary.PropertyDefinition WHERE parent = ? ORDER BY Name  -- params=['MborobakProbe.Coll']",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-29>:<Field not found in the applicable tables>]"
+ },
+ "o1.compiled_property.sqlcollation": {
+  "sql": "SELECT SqlFieldName, SqlCollation, Type FROM %Dictionary.CompiledProperty WHERE parent = ? ORDER BY SqlFieldName  -- params=['MborobakProbe.Coll']",
+  "status": "ok",
+  "result": [
+   [
+    "%%OID",
+    null,
+    "%Library.RawString"
+   ],
+   [
+    "%Concurrency",
+    null,
+    "%Library.RawString"
+   ],
+   [
+    "id",
+    null,
+    "%Library.Integer"
+   ],
+   [
+    "s_cexact",
+    null,
+    "%Library.String"
+   ],
+   [
+    "s_default",
+    null,
+    "%Library.String"
+   ],
+   [
+    "s_exact",
+    null,
+    "%Library.String"
+   ],
+   [
+    "s_sqlstring",
+    null,
+    "%Library.String"
+   ],
+   [
+    "s_trunc",
+    null,
+    "%Library.String"
+   ]
+  ]
+ },
+ "o1.compiled_property.parameters_collation": {
+  "status": "ok",
+  "result": {
+   "s_cexact": "EXACT",
+   "s_default": "<default>",
+   "s_exact": "EXACT",
+   "s_sqlstring": "SQLSTRING",
+   "s_trunc": "TRUNCATE(5)"
+  }
+ },
+ "o2.div_literal.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN 1/0 ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.div_literal.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN 1/0 ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.div_literal.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN 1/0 ELSE v END) > 0 ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.div_expr.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN 1/(v-v) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    2
+   ]
+  ]
+ },
+ "o2.div_expr.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN 1/(v-v) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.div_expr.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN 1/(v-v) ELSE v END) > 0 ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.div_param.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN 1/? ELSE v END FROM MborobakProbe.G ORDER BY id  -- params=[0]",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.div_param.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN 1/? ELSE v END FROM MborobakProbe.G ORDER BY id  -- params=[0]",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.div_param.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN 1/? ELSE v END) > 0 ORDER BY id  -- params=[0]",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.log_zero.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN LOG(0) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.log_zero.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN LOG(0) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.log_zero.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN LOG(0) ELSE v END) > 0 ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.sqrt_neg.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN SQRT(-1) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.sqrt_neg.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN SQRT(-1) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.sqrt_neg.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN SQRT(-1) ELSE v END) > 0 ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.to_date_tagged.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN TO_DATE('mborobak_guard_7', 'YYYY-MM-DD') ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-378>:<Datatype mismatch, explicit CAST is required>]"
+ },
+ "o2.to_date_tagged.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN TO_DATE('mborobak_guard_7', 'YYYY-MM-DD') ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-378>:<Datatype mismatch, explicit CAST is required>]"
+ },
+ "o2.to_date_tagged.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN TO_DATE('mborobak_guard_7', 'YYYY-MM-DD') ELSE v END) > 0 ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-378>:<Datatype mismatch, explicit CAST is required>]"
+ },
+ "o2.cast_date_tagged.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN CAST('mborobak_guard_7' AS DATE) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-378>:<Datatype mismatch, explicit CAST is required>]"
+ },
+ "o2.cast_date_tagged.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN CAST('mborobak_guard_7' AS DATE) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-378>:<Datatype mismatch, explicit CAST is required>]"
+ },
+ "o2.cast_date_tagged.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN CAST('mborobak_guard_7' AS DATE) ELSE v END) > 0 ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-378>:<Datatype mismatch, explicit CAST is required>]"
+ },
+ "o2.to_number_tagged.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN TO_NUMBER('mborobak_guard_7') ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    2
+   ]
+  ]
+ },
+ "o2.to_number_tagged.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN TO_NUMBER('mborobak_guard_7') ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    2
+   ]
+  ]
+ },
+ "o2.to_number_tagged.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN TO_NUMBER('mborobak_guard_7') ELSE v END) > 0 ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    3
+   ]
+  ]
+ },
+ "o2.char_neg.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN CHAR(-1) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    2
+   ]
+  ]
+ },
+ "o2.char_neg.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN CHAR(-1) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    null
+   ],
+   [
+    3,
+    2
+   ]
+  ]
+ },
+ "o2.char_neg.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN CHAR(-1) ELSE v END) > 0 ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    3
+   ]
+  ]
+ },
+ "o2.repeat_neg.branch_not_taken": {
+  "sql": "SELECT id, CASE WHEN v = 99 THEN REPEAT('x', -1) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    3,
+    2
+   ]
+  ]
+ },
+ "o2.repeat_neg.branch_taken": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN REPEAT('x', -1) ELSE v END FROM MborobakProbe.G ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    5
+   ],
+   [
+    2,
+    null
+   ],
+   [
+    3,
+    2
+   ]
+  ]
+ },
+ "o2.repeat_neg.in_where": {
+  "sql": "SELECT id FROM MborobakProbe.G WHERE (CASE WHEN v = 0 THEN REPEAT('x', -1) ELSE v END) > 0 ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    3
+   ]
+  ]
+ },
+ "o2.division_guard_full": {
+  "sql": "SELECT id, CASE WHEN v = 0 THEN 1/0 ELSE 10 / v END FROM MborobakProbe.G WHERE id <> 2 ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o2.error_detail": {
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]\r\n[Location: <ServerLoop - Query Fetch>]\r\n[%msg: <Unexpected error occurred:  <DIVIDE>%0AmBk1+3^%sqlcq.DATASPARK.cls217.1>]"
+ },
+ "o2.connection_usable_after_error": {
+  "sql": "SELECT 1",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "o2.null_divided_by_zero": {
+  "sql": "SELECT NULL / v FROM MborobakProbe.G WHERE v = 0",
+  "status": "ok",
+  "result": [
+   [
+    null
+   ]
+  ]
+ },
+ "o2.length_trigger_not_taken": {
+  "sql": "SELECT id, CASE WHEN s = 'zz' THEN 1/(LENGTH(s)-LENGTH(s)) ELSE 1 END FROM MborobakProbe.G ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ]
+  ]
+ },
+ "o2.length_trigger_taken": {
+  "sql": "SELECT id, CASE WHEN s = 'x' THEN 1/(LENGTH(s)-LENGTH(s)) ELSE 1 END FROM MborobakProbe.G ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "o3.pattern_signed": {
+  "sql": "SELECT s, CASE WHEN TRIM(s) %PATTERN '0.1(1\"-\",1\"+\")1.N' THEN 1 ELSE 0 END FROM MborobakProbe.P ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    "1",
+    1
+   ],
+   [
+    "-2",
+    1
+   ],
+   [
+    "+3",
+    1
+   ],
+   [
+    "007",
+    1
+   ],
+   [
+    "1.5",
+    0
+   ],
+   [
+    "1e3",
+    0
+   ],
+   [
+    " 1",
+    1
+   ],
+   [
+    "1 ",
+    1
+   ],
+   [
+    "",
+    0
+   ],
+   [
+    "abc",
+    0
+   ],
+   [
+    "1-",
+    0
+   ],
+   [
+    "-",
+    0
+   ],
+   [
+    "+",
+    0
+   ],
+   [
+    "12345678901234567890",
+    1
+   ],
+   [
+    "1.",
+    0
+   ],
+   [
+    ".5",
+    0
+   ],
+   [
+    "0x1F",
+    0
+   ],
+   [
+    "１",
+    1
+   ]
+  ]
+ },
+ "o3.pattern_unsigned": {
+  "sql": "SELECT s, CASE WHEN TRIM(s) %PATTERN '1.N' THEN 1 ELSE 0 END FROM MborobakProbe.P ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    "1",
+    1
+   ],
+   [
+    "-2",
+    0
+   ],
+   [
+    "+3",
+    0
+   ],
+   [
+    "007",
+    1
+   ],
+   [
+    "1.5",
+    0
+   ],
+   [
+    "1e3",
+    0
+   ],
+   [
+    " 1",
+    1
+   ],
+   [
+    "1 ",
+    1
+   ],
+   [
+    "",
+    0
+   ],
+   [
+    "abc",
+    0
+   ],
+   [
+    "1-",
+    0
+   ],
+   [
+    "-",
+    0
+   ],
+   [
+    "+",
+    0
+   ],
+   [
+    "12345678901234567890",
+    1
+   ],
+   [
+    "1.",
+    0
+   ],
+   [
+    ".5",
+    0
+   ],
+   [
+    "0x1F",
+    0
+   ],
+   [
+    "１",
+    1
+   ]
+  ]
+ },
+ "o3.isnumeric_trim": {
+  "sql": "SELECT s, CASE WHEN ISNUMERIC(TRIM(s)) = 1 THEN 1 ELSE 0 END FROM MborobakProbe.P ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    "1",
+    1
+   ],
+   [
+    "-2",
+    1
+   ],
+   [
+    "+3",
+    1
+   ],
+   [
+    "007",
+    1
+   ],
+   [
+    "1.5",
+    1
+   ],
+   [
+    "1e3",
+    1
+   ],
+   [
+    " 1",
+    1
+   ],
+   [
+    "1 ",
+    1
+   ],
+   [
+    "",
+    0
+   ],
+   [
+    "abc",
+    0
+   ],
+   [
+    "1-",
+    0
+   ],
+   [
+    "-",
+    0
+   ],
+   [
+    "+",
+    0
+   ],
+   [
+    "12345678901234567890",
+    1
+   ],
+   [
+    "1.",
+    1
+   ],
+   [
+    ".5",
+    1
+   ],
+   [
+    "0x1F",
+    0
+   ],
+   [
+    "１",
+    0
+   ]
+  ]
+ },
+ "o3.like_no_dot_e": {
+  "sql": "SELECT s, CASE WHEN TRIM(s) NOT LIKE '%.%' AND UPPER(TRIM(s)) NOT LIKE '%E%' THEN 1 ELSE 0 END FROM MborobakProbe.P ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    "1",
+    1
+   ],
+   [
+    "-2",
+    1
+   ],
+   [
+    "+3",
+    1
+   ],
+   [
+    "007",
+    1
+   ],
+   [
+    "1.5",
+    0
+   ],
+   [
+    "1e3",
+    0
+   ],
+   [
+    " 1",
+    1
+   ],
+   [
+    "1 ",
+    1
+   ],
+   [
+    "",
+    1
+   ],
+   [
+    "abc",
+    1
+   ],
+   [
+    "1-",
+    1
+   ],
+   [
+    "-",
+    1
+   ],
+   [
+    "+",
+    1
+   ],
+   [
+    "12345678901234567890",
+    1
+   ],
+   [
+    "1.",
+    0
+   ],
+   [
+    ".5",
+    0
+   ],
+   [
+    "0x1F",
+    1
+   ],
+   [
+    "１",
+    1
+   ]
+  ]
+ },
+ "o3.full_cast_rendering": {
+  "sql": "SELECT s, CASE WHEN ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1\"-\",1\"+\")1.N' THEN CAST(TRIM(s) AS INTEGER) WHEN s IS NULL THEN NULL ELSE -1 END FROM MborobakProbe.P ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    "1",
+    1
+   ],
+   [
+    "-2",
+    -2
+   ],
+   [
+    "+3",
+    3
+   ],
+   [
+    "007",
+    7
+   ],
+   [
+    "1.5",
+    -1
+   ],
+   [
+    "1e3",
+    -1
+   ],
+   [
+    " 1",
+    1
+   ],
+   [
+    "1 ",
+    1
+   ],
+   [
+    "",
+    -1
+   ],
+   [
+    "abc",
+    -1
+   ],
+   [
+    "1-",
+    -1
+   ],
+   [
+    "-",
+    -1
+   ],
+   [
+    "+",
+    -1
+   ],
+   [
+    "12345678901234567890",
+    12345678901234567890
+   ],
+   [
+    "1.",
+    -1
+   ],
+   [
+    ".5",
+    -1
+   ],
+   [
+    "0x1F",
+    -1
+   ],
+   [
+    "１",
+    -1
+   ]
+  ]
+ },
+ "o3.cast_bigint_overflow_text": {
+  "sql": "SELECT CAST('12345678901234567890' AS BIGINT), CAST('99999999999' AS INTEGER)",
+  "status": "ok",
+  "result": [
+   [
+    12345678901234567890,
+    99999999999
+   ]
+  ]
+ },
+ "o3.pattern_with_param": {
+  "sql": "SELECT s FROM MborobakProbe.P WHERE TRIM(s) %PATTERN ? ORDER BY id  -- params=['0.1(1\"-\",1\"+\")1.N']",
+  "status": "ok",
+  "result": [
+   [
+    "1"
+   ],
+   [
+    "-2"
+   ],
+   [
+    "+3"
+   ],
+   [
+    "007"
+   ],
+   [
+    " 1"
+   ],
+   [
+    "1 "
+   ],
+   [
+    "12345678901234567890"
+   ],
+   [
+    "１"
+   ]
+  ]
+ },
+ "o5.insert_0": {
+  "sql": "0.0",
+  "status": "ok",
+  "result": null
+ },
+ "o5.insert_1": {
+  "sql": "-0.0",
+  "status": "ok",
+  "result": null
+ },
+ "o5.insert_2": {
+  "sql": "nan",
+  "status": "ok",
+  "result": null
+ },
+ "o5.insert_3": {
+  "sql": "nan",
+  "status": "ok",
+  "result": null
+ },
+ "o5.insert_4": {
+  "sql": "1.0",
+  "status": "ok",
+  "result": null
+ },
+ "o5.insert_5": {
+  "sql": "inf",
+  "status": "ok",
+  "result": null
+ },
+ "o5.insert_6": {
+  "sql": "-inf",
+  "status": "ok",
+  "result": null
+ },
+ "o5.insert_7": {
+  "sql": "None",
+  "status": "ok",
+  "result": null
+ },
+ "o5.raw": {
+  "sql": "SELECT id, d FROM MborobakProbe.F ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    0,
+    0.0
+   ],
+   [
+    1,
+    -0.0
+   ],
+   [
+    2,
+    NaN
+   ],
+   [
+    3,
+    NaN
+   ],
+   [
+    4,
+    1.0
+   ],
+   [
+    5,
+    Infinity
+   ],
+   [
+    6,
+    -Infinity
+   ],
+   [
+    7,
+    null
+   ]
+  ]
+ },
+ "o5.group_by": {
+  "sql": "SELECT d, COUNT(*) FROM MborobakProbe.F GROUP BY d",
+  "status": "ok",
+  "result": [
+   [
+    null,
+    1
+   ],
+   [
+    0.0,
+    2
+   ],
+   [
+    1.0,
+    1
+   ],
+   [
+    -Infinity,
+    1
+   ],
+   [
+    Infinity,
+    1
+   ],
+   [
+    NaN,
+    2
+   ]
+  ]
+ },
+ "o5.distinct": {
+  "sql": "SELECT DISTINCT d FROM MborobakProbe.F",
+  "status": "ok",
+  "result": [
+   [
+    0.0
+   ],
+   [
+    NaN
+   ],
+   [
+    1.0
+   ],
+   [
+    Infinity
+   ],
+   [
+    -Infinity
+   ],
+   [
+    null
+   ]
+  ]
+ },
+ "o5.order_asc": {
+  "sql": "SELECT id, d FROM MborobakProbe.F ORDER BY d, id",
+  "status": "ok",
+  "result": [
+   [
+    7,
+    null
+   ],
+   [
+    0,
+    0.0
+   ],
+   [
+    1,
+    0.0
+   ],
+   [
+    4,
+    1.0
+   ],
+   [
+    6,
+    -Infinity
+   ],
+   [
+    5,
+    Infinity
+   ],
+   [
+    2,
+    NaN
+   ],
+   [
+    3,
+    NaN
+   ]
+  ]
+ },
+ "o5.order_desc": {
+  "sql": "SELECT id, d FROM MborobakProbe.F ORDER BY d DESC, id",
+  "status": "ok",
+  "result": [
+   [
+    2,
+    NaN
+   ],
+   [
+    3,
+    NaN
+   ],
+   [
+    5,
+    Infinity
+   ],
+   [
+    6,
+    -Infinity
+   ],
+   [
+    4,
+    1.0
+   ],
+   [
+    0,
+    0.0
+   ],
+   [
+    1,
+    0.0
+   ],
+   [
+    7,
+    null
+   ]
+  ]
+ },
+ "o5.zero_eq_negzero": {
+  "sql": "SELECT id FROM MborobakProbe.F WHERE d = 0 ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ],
+   [
+    1
+   ]
+  ]
+ },
+ "o5.nan_self_join": {
+  "sql": "SELECT a.id, b.id FROM MborobakProbe.F a JOIN MborobakProbe.F b ON a.d = b.d WHERE a.id IN (2, 3) ORDER BY a.id, b.id",
+  "status": "ok",
+  "result": [
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    3,
+    2
+   ],
+   [
+    3,
+    3
+   ]
+  ]
+ },
+ "o5.gt_inf": {
+  "sql": "SELECT id FROM MborobakProbe.F WHERE d > 1e300 ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ]
+  ]
+ },
+ "o5.min_max_sum": {
+  "sql": "SELECT MIN(d), MAX(d), COUNT(d) FROM MborobakProbe.F",
+  "status": "ok",
+  "result": [
+   [
+    -Infinity,
+    Infinity,
+    7
+   ]
+  ]
+ },
+ "o5b.order_by_plain": {
+  "sql": "SELECT id, d FROM MborobakProbe.F ORDER BY d, id",
+  "status": "ok",
+  "result": [
+   [
+    2,
+    -1e+300
+   ],
+   [
+    3,
+    -1e+20
+   ],
+   [
+    0,
+    null
+   ],
+   [
+    1,
+    null
+   ],
+   [
+    13,
+    null
+   ],
+   [
+    4,
+    -1.0
+   ],
+   [
+    5,
+    0.0
+   ],
+   [
+    6,
+    0.0
+   ],
+   [
+    7,
+    2.5
+   ],
+   [
+    8,
+    1e+19
+   ],
+   [
+    9,
+    1e+300
+   ],
+   [
+    11,
+    -Infinity
+   ],
+   [
+    10,
+    Infinity
+   ],
+   [
+    12,
+    NaN
+   ]
+  ]
+ },
+ "o5b.order_by_plus_zero": {
+  "sql": "SELECT id, d FROM MborobakProbe.F ORDER BY d + 0, id",
+  "status": "ok",
+  "result": [
+   [
+    2,
+    -1e+300
+   ],
+   [
+    3,
+    -1e+20
+   ],
+   [
+    0,
+    null
+   ],
+   [
+    1,
+    -1e+19
+   ],
+   [
+    13,
+    null
+   ],
+   [
+    4,
+    -1.0
+   ],
+   [
+    5,
+    0.0
+   ],
+   [
+    6,
+    -0.0
+   ],
+   [
+    7,
+    2.5
+   ],
+   [
+    8,
+    1e+19
+   ],
+   [
+    9,
+    1e+300
+   ],
+   [
+    11,
+    -Infinity
+   ],
+   [
+    10,
+    Infinity
+   ],
+   [
+    12,
+    NaN
+   ]
+  ]
+ },
+ "o5b.order_by_bucket_asc": {
+  "sql": "SELECT id, d FROM MborobakProbe.F ORDER BY CASE WHEN d IS NULL THEN 0 WHEN d < -1.7976931348623157E308 THEN 1 WHEN d <> d THEN 4 WHEN d > 1.7976931348623157E308 THEN 3 ELSE 2 END, d + 0, id",
+  "status": "ok",
+  "result": [
+   [
+    0,
+    null
+   ],
+   [
+    13,
+    null
+   ],
+   [
+    11,
+    -Infinity
+   ],
+   [
+    2,
+    -1e+300
+   ],
+   [
+    3,
+    -1e+20
+   ],
+   [
+    1,
+    -1e+19
+   ],
+   [
+    4,
+    -1.0
+   ],
+   [
+    5,
+    0.0
+   ],
+   [
+    6,
+    -0.0
+   ],
+   [
+    7,
+    2.5
+   ],
+   [
+    8,
+    1e+19
+   ],
+   [
+    9,
+    1e+300
+   ],
+   [
+    10,
+    Infinity
+   ],
+   [
+    12,
+    NaN
+   ]
+  ]
+ },
+ "o5b.order_by_bucket_desc": {
+  "sql": "SELECT id, d FROM MborobakProbe.F ORDER BY CASE WHEN d IS NULL THEN 0 WHEN d < -1.7976931348623157E308 THEN 1 WHEN d <> d THEN 4 WHEN d > 1.7976931348623157E308 THEN 3 ELSE 2 END DESC, d + 0 DESC, id",
+  "status": "ok",
+  "result": [
+   [
+    12,
+    NaN
+   ],
+   [
+    10,
+    Infinity
+   ],
+   [
+    9,
+    1e+300
+   ],
+   [
+    8,
+    1e+19
+   ],
+   [
+    7,
+    2.5
+   ],
+   [
+    5,
+    0.0
+   ],
+   [
+    6,
+    -0.0
+   ],
+   [
+    4,
+    -1.0
+   ],
+   [
+    1,
+    -1e+19
+   ],
+   [
+    3,
+    -1e+20
+   ],
+   [
+    2,
+    -1e+300
+   ],
+   [
+    11,
+    -Infinity
+   ],
+   [
+    0,
+    null
+   ],
+   [
+    13,
+    null
+   ]
+  ]
+ },
+ "o5b.group_by": {
+  "sql": "SELECT d, COUNT(*) FROM MborobakProbe.F GROUP BY d",
+  "status": "ok",
+  "result": [
+   [
+    -1e+300,
+    1
+   ],
+   [
+    -1e+20,
+    1
+   ],
+   [
+    null,
+    3
+   ],
+   [
+    -1.0,
+    1
+   ],
+   [
+    0.0,
+    2
+   ],
+   [
+    2.5,
+    1
+   ],
+   [
+    1e+19,
+    1
+   ],
+   [
+    1e+300,
+    1
+   ],
+   [
+    -Infinity,
+    1
+   ],
+   [
+    Infinity,
+    1
+   ],
+   [
+    NaN,
+    1
+   ]
+  ]
+ },
+ "o5b.group_by_plus_zero": {
+  "sql": "SELECT d + 0, COUNT(*) FROM MborobakProbe.F GROUP BY d + 0",
+  "status": "ok",
+  "result": [
+   [
+    -1e+300,
+    1
+   ],
+   [
+    -1e+20,
+    1
+   ],
+   [
+    null,
+    3
+   ],
+   [
+    -1.0,
+    1
+   ],
+   [
+    0.0,
+    2
+   ],
+   [
+    2.5,
+    1
+   ],
+   [
+    1e+19,
+    1
+   ],
+   [
+    1e+300,
+    1
+   ],
+   [
+    -Infinity,
+    1
+   ],
+   [
+    Infinity,
+    1
+   ],
+   [
+    NaN,
+    1
+   ]
+  ]
+ },
+ "o5b.distinct": {
+  "sql": "SELECT DISTINCT d FROM MborobakProbe.F",
+  "status": "ok",
+  "result": [
+   [
+    null
+   ],
+   [
+    -1e+300
+   ],
+   [
+    -1e+20
+   ],
+   [
+    -1.0
+   ],
+   [
+    0.0
+   ],
+   [
+    2.5
+   ],
+   [
+    1e+19
+   ],
+   [
+    1e+300
+   ],
+   [
+    Infinity
+   ],
+   [
+    -Infinity
+   ],
+   [
+    NaN
+   ]
+  ]
+ },
+ "o5b.count_distinct": {
+  "sql": "SELECT COUNT(DISTINCT d) FROM MborobakProbe.F",
+  "status": "ok",
+  "result": [
+   [
+    10
+   ]
+  ]
+ },
+ "o5b.where_eq": {
+  "sql": "SELECT id FROM MborobakProbe.F WHERE d = -1E19",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "o5b.nan_where_plain": {
+  "sql": "SELECT id FROM MborobakProbe.F WHERE d <> d",
+  "status": "ok",
+  "result": []
+ },
+ "o5b.nan_where_case": {
+  "sql": "SELECT id FROM MborobakProbe.F WHERE CASE WHEN d <> d THEN 1 ELSE 0 END = 1",
+  "status": "ok",
+  "result": [
+   [
+    12
+   ]
+  ]
+ }
+}

@@ -1,4 +1,4 @@
-SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.7 · 2026-11-18
+SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.8 · 2026-11-18
 
 # Mborobak
 
@@ -18,6 +18,7 @@ Scope document covering functionality, architecture, implementation and validati
 | 1.5     | 2026-11-18 | Decided D2 (Python 3.11+), D3 (driver 5.4+), D4 (`union()` keeps duplicates), D5 (100 ms threshold), D6 (MIT), D7 (rewrite the core, port reviewed IRISpark parts) and D10 (PySpark string behavior by default); §6.11, §7, §8.3 and §16 updated to match. Only D8 remains open. |
 | 1.6     | 2026-11-18 | Project renamed from **Fluxora** to **Mborobak** (API names follow, e.g. `MborobakSession`). D8 reopened for the new name. |
 | 1.7     | 2026-11-18 | Added the InterSystems contest requirements (§1.1). D1 changed to the required IRIS build (2026.3.0AI.154.0, AI Hub Community image). |
+| 1.8     | 2026-11-18 | §6.8 aligned with compiler spec draft 0.2: divisions need no guard (IRIS's error names the cause); new `DOUBLE` sorting rule for IRIS's `-1E19` NULL marker. |
 
 ---
 
@@ -190,9 +191,10 @@ The compiler specification must detail these requirements and cover them with te
 6. **Joins and ambiguity.** Rules for same-named columns after a join, key deduplication in `join(on="id")` (as in PySpark), `df["col"]` vs. `col("col")` references, self-joins via `alias()`, and an explicit error for ambiguous references.
 7. **Composing `sql()`.** User SQL is wrapped as a subquery. An inner `ORDER BY` follows rule 2. Columns are resolved as in §5.2.
 8. **Types and NULL.** The measured differences are listed in the [IRIS behavior study](iris-behavior-study.md) §2.6–2.7 and go into the compatibility matrix. Required handling:
-   - **Division:** IRIS stops the whole query with a fatal error on division by zero. Following the reference's ANSI mode (D9), Mborobak raises its own clear division-by-zero error; the compiler guards divisions so the user never sees an unexplained fatal IRIS error.
+   - **Division:** IRIS stops the whole query with a fatal error on division by zero. Following the reference's ANSI mode (D9), Mborobak raises its own clear division-by-zero error. IRIS's error message names the cause (`<DIVIDE>`), so divisions need no guard: the execution adapter turns the fatal IRIS error into a Mborobak error ([compiler spec](compiler-spec.md) §7.5).
    - **Casts:** IRIS returns 0 for an invalid string-to-number cast and doesn't reject numeric overflow. Under ANSI mode both are errors in Spark. String-to-number casts get a validity check that raises a Mborobak error. Numeric overflow raises an error where the compiler can check it cheaply; otherwise it is a documented known difference.
    - **NULL ordering:** IRIS's default (NULL first ascending, last descending) matches Spark, but there is no `NULLS FIRST`/`NULLS LAST` syntax. Explicit `nulls_first()`/`nulls_last()` compile to an extra `CASE WHEN x IS NULL …` sort key.
+   - **`DOUBLE` sorting:** IRIS uses `-1E19` as an internal NULL marker when it sorts or groups `DOUBLE` values, and sorts `-Infinity` after finite values. `DOUBLE` sort keys get an extra bucket key, which restores Spark's order ([compiler spec](compiler-spec.md) §7.9). Grouping on a `-1E19` value is a documented known difference until a fix is verified.
    - **Empty string:** `''` and `NULL` are distinct in IRIS, as in Spark; no special handling.
    - **Result types:** IRIS returns `Decimal` where Spark returns `DOUBLE` (for example `7/2`, `AVG` of integers), and the driver returns `DATE` as a string. Results are converted using the DataFrame's schema, not the driver's types.
    - **Timestamps:** IRIS `TIMESTAMP` has no time zone; Mborobak treats it as a timestamp without time zone.

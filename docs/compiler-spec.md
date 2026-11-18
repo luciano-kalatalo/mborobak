@@ -1,8 +1,8 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.1 · 2026-11-18
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.2 · 2026-11-18
 
-Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** come from a follow-up check on the same instance, recorded in §12.
+Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c.
 
 ## 1. Purpose and boundaries
 
@@ -95,7 +95,7 @@ All expression nodes are immutable dataclasses. Every expression knows its child
 | `AggregateCall` | `function`, `args`, `distinct` | `count`, `sum`, `avg`, `min`, `max`, `countDistinct` |
 | `SortOrder` | `child`, `direction`, `nulls` | Default nulls: first for ascending, last for descending (Spark default) |
 
-**Internal nodes added by required translations (§7),** never created by users: `Exact(child)` (renders `%EXACT(...)`), `DivisionGuard`, `CastGuard`, `NullOrderKey`.
+**Internal nodes added by required translations (§7),** never created by users: `Exact(child)` (renders `%EXACT(...)`), `CastGuard`, `NullOrderKey`, `DoubleSortKey`. (Draft 0.1 also had `DivisionGuard`; §7.5 explains why it was removed.)
 
 ## 5. Plan nodes
 
@@ -144,7 +144,32 @@ Supported `join_type`: `inner`, `left`/`left_outer`, `right`/`right_outer`, `ful
 
 ### 6.4 Schema lookups
 
-The `Catalog` reads `INFORMATION_SCHEMA.COLUMNS` once per table per session and caches it (scope §5.2). It returns names, types, precision, scale, nullability, and **collation**. `COLLATION_NAME` is NULL in `INFORMATION_SCHEMA` (study §2.4), so the source for collation is still open (§13, O1). Until it is found, the catalog treats every string column as `SQLUPPER`, which is safe: wrapping an already-exact column in `%EXACT` gives the same result, only possibly slower.
+The `Catalog` reads `INFORMATION_SCHEMA.COLUMNS` once per table per session and caches it (scope §5.2). It returns names, types, precision, scale, nullability, and **collation**.
+
+`COLLATION_NAME` is NULL in `INFORMATION_SCHEMA.COLUMNS` (study §2.4), and so is `%Dictionary.CompiledProperty.SqlCollation`. The collation is in the property's `Parameters` string **(probe 2026-11-18c)**:
+
+```sql
+SELECT p.SqlFieldName, p.Parameters
+FROM INFORMATION_SCHEMA.TABLES t
+JOIN %Dictionary.CompiledProperty p ON p.parent = t.CLASSNAME
+WHERE t.TABLE_SCHEMA = ? AND t.TABLE_NAME = ?
+```
+
+`Parameters` is a flat `KEY,value,KEY,value,…` string. The catalog reads the value after `COLLATION`:
+
+| `COLLATION` value | DDL that produced it | Catalog collation | `%EXACT` needed |
+|-------------------|----------------------|-------------------|-----------------|
+| empty | none (default) | namespace default, taken as `SQLUPPER` | yes |
+| `EXACT` | `%EXACT` or `COLLATE %EXACT` | `EXACT` | no |
+| `SQLSTRING` | `COLLATE SQLSTRING` | `SQLSTRING` (case-sensitive, ignores trailing spaces) | yes |
+| anything else (`TRUNCATE(n)`, `SQLUPPER(n)`, …) | various | as read | yes |
+
+Rules:
+
+- Only `EXACT` skips the wrapper; every other value, and any parsing failure, falls back to wrapping. Wrapping an exact column gives the same result, only possibly slower, so the fallback is safe.
+- An empty value means the namespace default. It is assumed to be `SQLUPPER`, the IRIS default; a namespace configured otherwise still gets correct results because of the fallback.
+- Tables without a class (`CLASSNAME` NULL, for example linked tables) also fall back to wrapping.
+- Both lookups share the one cached catalog round trip per table.
 
 ## 7. Required translations
 
@@ -182,17 +207,22 @@ All forms verified **(probe 2026-11-18b)**. With `string_semantics="iris"`, no w
 
 When a `SortOrder` asks for the non-default null position (`asc_nulls_last`, `desc_nulls_first`), the generator adds a sort key in front of it: `CASE WHEN x IS NULL THEN 1 ELSE 0 END` (ascending nulls last) or `… THEN 0 ELSE 1 END` (descending nulls first). IRIS has no `NULLS FIRST/LAST` syntax (study §2.6).
 
-### 7.5 Division
+### 7.5 Division and runtime errors
 
-Every `/` and `%` whose divisor isn't a non-zero literal is wrapped in a `DivisionGuard`:
+IRIS already raises SQLCODE -400 on a zero divisor at run time, and `NULL / 0` is `NULL` **(probe 2026-11-18c)**, which is Spark's ANSI behavior (D9). The draft 0.1 `DivisionGuard` is therefore **dropped**: `/` and `%` render as plain `n / d` and `MOD(n, d)`.
 
-```sql
-CASE WHEN d = 0 THEN <error trigger> ELSE n / d END
-```
+The -400 driver message carries the ObjectScript error in its `%msg` part, for example `<DIVIDE>` **(probe 2026-11-18c)**. The connection stays usable afterwards. The execution adapter reads that code and raises a Mborobak error:
 
-IRIS can't raise a custom error from SQL without installing server-side code, which the scope rules out (scope §7). The **error trigger** is an expression known to fail with SQLCODE -400. The execution adapter maps a -400 from a plan that contains guards to `MborobakArithmeticError`, naming the possible causes present in the plan (division by zero, invalid cast). Exact attribution to one expression is open (§13, O2).
+| `%msg` code | Mborobak error | Possible causes in the plan |
+|-------------|----------------|-----------------------------|
+| `<DIVIDE>` | `MborobakArithmeticError` ("division by zero") | any `/` or `%` |
+| `<ILLEGAL VALUE>` | `MborobakCastError` ("invalid input for cast") | a `CastGuard` (§7.7) |
+| `<MAXNUMBER>` | `MborobakArithmeticError` ("numeric overflow") | numeric arithmetic or cast |
+| other | `MborobakExecutionError` with the IRIS text attached | — |
 
-With ANSI mode on (D9) this matches Spark's behavior (an error); the user never sees an unexplained "fatal error".
+The message lists the candidate expressions of that kind from the plan (for example, the two divisions in the `select`). Narrowing it down to one expression would need extra queries and is not done in P0.
+
+**Error triggers must depend on a row value.** IRIS evaluates constant subexpressions before reading rows: `CASE WHEN v = 99 THEN 1/0 ELSE v END` fails even when no row has `v = 99`, and so do `1/?`, `LOG(0)` and `SQRT(-1)` **(probe 2026-11-18c)**. A trigger such as `LOG(LENGTH(s) - LENGTH(s))` only fails when its branch is taken. The same eager evaluation affects user expressions: a constant division by zero anywhere in a statement fails the statement, as Spark's constant folding does too.
 
 ### 7.6 Integer overflow
 
@@ -202,15 +232,51 @@ IRIS doesn't overflow `INTEGER` arithmetic (study §2.6). In P0 this is a **docu
 
 | Cast | Rendering |
 |------|-----------|
-| string → integer, long | `CASE WHEN ISNUMERIC(TRIM(s)) = 1 AND <integer pattern> THEN CAST(TRIM(s) AS INTEGER) WHEN s IS NULL THEN NULL ELSE <error trigger> END` |
-| string → double, decimal | Same, without the integer pattern (IRIS returns 0 / 0.0 for invalid text, study §2.6, **probe 2026-11-18b**) |
+| string → integer, long | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1"-",1"+")1.N' THEN CAST(TRIM(s) AS INTEGER) ELSE LOG(LENGTH(s) - LENGTH(s)) END` |
+| string → double, decimal | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 THEN CAST(TRIM(s) AS DOUBLE) ELSE LOG(LENGTH(s) - LENGTH(s)) END` |
 | numeric → string, numeric → numeric, date/timestamp ↔ string | Plain `CAST` |
 
-`ISNUMERIC(' 1')` is 0 and `ISNUMERIC('1e3')` is 1 **(probe 2026-11-18b)**, so the value is trimmed first (Spark trims), and the integer pattern rejects exponents and decimal points for integer targets. Numeric precision overflow is a documented known difference in P0 (§7.6).
+Why each part is there:
+
+- **NULL first.** NULL input gives NULL, and the `ELSE` branch is only reached with a non-NULL `s`, so `LENGTH(s) - LENGTH(s)` is 0 there and `LOG(0)` raises `<ILLEGAL VALUE>` (§7.5).
+- **`ISNUMERIC(TRIM(s))`.** Spark trims before casting; `ISNUMERIC(' 1')` is 0 without the trim. It rejects `''`, `'abc'`, `'1-'`, `'0x1F'` and full-width digits such as `'１'` **(probe 2026-11-18c)**.
+- **The integer pattern** rejects what `ISNUMERIC` accepts but an integer cast must not: `'1.5'`, `'1e3'`, `'1.'`, `'.5'`. It accepts an optional sign and leading zeros (`'+3'` → 3, `'007'` → 7). `%PATTERN` alone would accept `'１'`, so both tests are needed. The pattern is emitted as SQL text, not a parameter: it is fixed compiler text, never user input (§9.5).
+
+Verified on 18 inputs **(probe 2026-11-18c)**: the combined rule accepts exactly the integer-shaped strings.
+
+**Known difference:** IRIS returns `12345678901234567890` from `CAST(… AS INTEGER)` and `CAST(… AS BIGINT)` without an error, where Spark raises an overflow for `long`. This falls under §7.6. Values above 18 digits are rare in text columns; the compatibility matrix lists the case.
 
 ### 7.8 Never-emitted constructs
 
 The generator must not produce (scope §6.12): `GROUP BY` positions; `IS NULL` or any other boolean expression directly in the `SELECT` list (rendered as `CASE WHEN <condition> THEN 1 ELSE 0 END` there, typed `BooleanType` and converted to `bool` on fetch); NaN or infinity literals; `%PARALLEL` after a table name; `ORDER BY` or `LIMIT` inside subqueries (§7.2–7.3).
+
+### 7.9 Sorting `DOUBLE` columns
+
+IRIS uses `-1E19` as its internal NULL marker when it sorts `DOUBLE` values **(probe 2026-11-18c)**:
+
+- `ORDER BY d` returns a stored `-1E19` as NULL, and NULLs sort between `-1E20` and `-1E18` instead of first.
+- `-Infinity` sorts after the largest finite value, next to `+Infinity`.
+- The same marker applies to `GROUP BY d`, `DISTINCT d` and `COUNT(DISTINCT d)`: `-1E19` merges with NULL. `GROUP BY d + 0` does not help.
+- `WHERE d = -1E19`, joins on `d`, `MIN` and `MAX` are correct.
+
+Every sort key of type `DoubleType` (or `FloatType`) is rendered as two keys, a bucket and the value plus zero:
+
+```sql
+ORDER BY CASE WHEN d IS NULL THEN 0
+              WHEN d < -1.7976931348623157E308 THEN 1
+              WHEN d <> d THEN 4
+              WHEN d > 1.7976931348623157E308 THEN 3
+              ELSE 2 END,
+         d + 0
+```
+
+- **Buckets:** NULL, −∞, finite, +∞, NaN, which is Spark's ascending order. `DESC` applies to both keys, giving Spark's descending order; explicit null positions (§7.4) replace the NULL bucket.
+- **`d + 0`:** sorting on an expression instead of the column stops the corrupted value being returned (`-1E19` comes back intact).
+- **`d <> d`:** true only for NaN inside a `CASE`. As a bare `WHERE d <> d` the optimizer folds it to false, so it must stay inside the `CASE`.
+
+Verified ascending and descending on 14 values including NULL, ±0, ±1E19, ±1E300, ±∞ and NaN **(probe 2026-11-18c)**. `NUMERIC` and integer sorts are not affected.
+
+**Grouping and distinct are a known difference in P0:** a `-1E19` in a grouping key or `DISTINCT` column merges with NULL. A fix needs a key that keeps the two apart without changing the output value; it is open (§13, O7).
 
 ## 8. Optional rewrites
 
@@ -276,6 +342,7 @@ Each plan node either **merges** into the current block or **wraps** it: the cur
 
 - Every `Literal` becomes `?`. The parameter list is built in the order the `?` marks appear in the final text.
 - The compiler counts parameters. Above **900**, it raises `PlanTooLargeError` with the count and the operation that contributed most (usually an `isin()` list). IRIS fails at about 999 (study §2.3); 900 leaves room for literals that IRIS itself extracts.
+- **Fixed compiler text is inline, not a parameter:** the `%PATTERN` string (§7.7), the `DOUBLE` bucket constants (§7.9), the `CASE` results of `NullOrderKey` (§7.4) and boolean projections (§7.8). None of it comes from users, and it stays out of the 900 count. (A `%PATTERN ?` parameter also works, probe 2026-11-18c, but the text form keeps `explain()` readable.)
 - `lit(None)` renders as `NULL` text (wrapped in a `CAST` when the type matters), not as a parameter. A comparison with `None` (`col("x") == None`) follows SQL rules and yields NULL, as in Spark; users test for nulls with `isNull()`.
 
 ### 9.6 Fingerprint and cache
@@ -370,15 +437,17 @@ sales.select((col("id") / col("customer_id")).alias("ratio"), col("status").cast
 Integer divided by integer is `DoubleType` in Spark (§3), so the dividend is cast first:
 
 ```sql
-SELECT CASE WHEN "customer_id" = 0 THEN <error trigger>
-            ELSE CAST("id" AS DOUBLE) / "customer_id" END AS "ratio",
+SELECT CAST("id" AS DOUBLE) / "customer_id" AS "ratio",
        CASE WHEN "status" IS NULL THEN NULL
-            WHEN ISNUMERIC(TRIM("status")) = 1 AND <integer pattern> THEN CAST(TRIM("status") AS INTEGER)
-            ELSE <error trigger> END AS "s"
+            WHEN ISNUMERIC(TRIM("status")) = 1
+             AND TRIM("status") %PATTERN '0.1(1"-",1"+")1.N' THEN CAST(TRIM("status") AS INTEGER)
+            ELSE LOG(LENGTH("status") - LENGTH("status")) END AS "s"
 FROM "SQLUser"."Sales"
 ```
 
-## 12. Follow-up probe (2026-11-18b)
+## 12. Follow-up probes
+
+### 12.1 Probe 2026-11-18b
 
 Run on the same IRIS 2026.2 instance as the study, in a scratch schema that was dropped afterwards:
 
@@ -397,13 +466,40 @@ Run on the same IRIS 2026.2 instance as the study, in a scratch schema that was 
 
 IRISpark's notes list "outer join" as having no SQL mapping; on 2026.2 full outer joins work, so that note doesn't apply.
 
+### 12.2 Probe 2026-11-18c
+
+Script [`probes/compiler_followup_probe.py`](../probes/compiler_followup_probe.py), raw output [`probes/results-2026-11-18c-iris-2026.2.json`](../probes/results-2026-11-18c-iris-2026.2.json). Same IRIS 2026.2 instance (build 221U), scratch tables in `MborobakProbe`, dropped afterwards.
+
+| Question | Check | Result |
+|----------|-------|--------|
+| O1 | `INFORMATION_SCHEMA.COLUMNS.COLLATION_NAME`, `CompiledProperty.SqlCollation` | NULL for all five DDL variants |
+| O1 | `CompiledProperty.Parameters` | `COLLATION,` empty for default, `EXACT` for `%EXACT` and `COLLATE %EXACT`, `SQLSTRING`, `TRUNCATE(5)` (§6.4) |
+| O1 | `INFORMATION_SCHEMA.TABLES.CLASSNAME` | Gives the class (`MborobakProbe.Coll`) to join on |
+| O2 | `1/0`, `1/?` (=0), `LOG(0)`, `SQRT(-1)` in an untaken `CASE` branch | All fail with -400: constants are evaluated eagerly |
+| O2 | `1/(v-v)`, `LOG(LENGTH(s)-LENGTH(s))` in an untaken branch | No error; fail only when taken |
+| O2 | `TO_DATE('tag', …)`, `CAST('tag' AS DATE)` | -378 at prepare time (unusable) |
+| O2 | `TO_NUMBER('tag')`, `CHAR(-1)`, `REPEAT('x', -1)` | No error (NULL or a value) |
+| O2 | `%msg` of -400 | `<DIVIDE>` (division, `MOD`), `<ILLEGAL VALUE>` (`LOG`, `SQRT`, `POWER`), `<MAXNUMBER>` (`EXP`, huge cast), `<RANGE>` (`$LISTGET`) |
+| O2 | Plain `10 / v` with `v = 0`; `NULL / 0` | -400 `<DIVIDE>`; NULL. The connection stays usable |
+| O3 | `%PATTERN '0.1(1"-",1"+")1.N'` on 18 inputs | Accepts signed digit strings, rejects `1.5`, `1e3`, `1.`, `.5`, `''`, `-`; also accepts `'１'` (full-width) |
+| O3 | `ISNUMERIC(TRIM(s))` on the same inputs | Rejects `'１'`, `'0x1F'`; accepts `1.5`, `1e3` |
+| O3 | Combined rule (§7.7) | Exactly the integer-shaped strings; `'+3'` → 3, `'007'` → 7 |
+| O5 | `-0.0` vs `0.0` | Equal in `WHERE`, one group, one `DISTINCT` value (Spark also normalizes) |
+| O5 | NaN | Inserted by parameter; groups together and joins to itself (as in Spark); `MAX` ignores it (Spark returns NaN) |
+| O5 | `CASE WHEN d <> d` vs `WHERE d <> d` | True for NaN only inside `CASE`; bare predicate folded to false |
+| §7.9 | `ORDER BY d` on `DOUBLE` | `-1E19` returned as NULL; NULLs sort at `-1E19`; `-Infinity` sorts after finite values |
+| §7.9 | Bucket key plus `d + 0` | Spark order ascending and descending, values intact |
+| §7.9 | `GROUP BY d`, `GROUP BY d + 0`, `DISTINCT d`, `COUNT(DISTINCT d)` | `-1E19` merges with NULL |
+
 ## 13. Open questions
 
 | # | Question | Needed for |
 |---|----------|------------|
-| O1 | Where to read a column's collation (`INFORMATION_SCHEMA.COLUMNS.COLLATION_NAME` is NULL). Candidates: `%Dictionary.CompiledProperty`, the `SQLUPPER`/`EXACT` property parameters | §6.4, avoiding unneeded `%EXACT` |
-| O2 | A stable error trigger, and how to tell which guard fired | §7.5, §7.7 |
-| O3 | The exact `<integer pattern>` expression in IRIS SQL (`%PATTERN`, `LIKE`, or `$MATCH` via a SQL function) | §7.7 |
+| O1 | ~~Where to read a column's collation~~ **Resolved:** `%Dictionary.CompiledProperty.Parameters` (§6.4) | — |
+| O2 | ~~A stable error trigger, and how to tell which guard fired~~ **Resolved:** row-dependent `LOG(LENGTH(s) - LENGTH(s))` for casts, no guard for division, attribution by `%msg` code (§7.5) | — |
+| O3 | ~~The exact integer pattern~~ **Resolved:** `ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1"-",1"+")1.N'` (§7.7) | — |
 | O4 | Cost of `%EXACT` at 1M rows (index loss) | Benchmark, D10 |
-| O5 | Whether `-0.0` and `0.0` group together, and how NaN compares and sorts | §3, compatibility matrix |
-| O6 | Re-check everything on IRIS 2026.3.0AI build 154 (D1) | Before submission |
+| O5 | ~~How `-0.0` and NaN group, compare and sort~~ **Resolved** (§12.2); `MAX` ignoring NaN goes to the compatibility matrix | — |
+| O6 | Re-check everything on IRIS 2026.3.0AI build 154 (D1), including both probe scripts | Before submission |
+| O7 | Grouping and `DISTINCT` on `DOUBLE` merge `-1E19` with NULL (§7.9). Candidate: group on an extra NULL flag and return the value via `MIN(d)`, which is correct; needs a probe and a cost check | §7.9, compatibility matrix |
+| O8 | Whether to report the IRIS `-1E19` sort/group behavior to InterSystems | Before submission |
