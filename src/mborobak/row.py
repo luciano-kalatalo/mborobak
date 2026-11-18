@@ -79,6 +79,5 @@ def row_class(names: tuple[str, ...]) -> type:
 
 
 def make_rows(names: tuple[str, ...], rows) -> list[Row]:
-    cls = row_class(tuple(names))
-    new = tuple.__new__
-    return [new(cls, r) for r in rows]
+    # map() over a partial runs tuple.__new__ without a Python frame per row (about twice as fast).
+    return list(map(functools.partial(tuple.__new__, row_class(tuple(names))), rows))
