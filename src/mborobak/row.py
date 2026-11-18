@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from typing import Any
 
 __all__ = ["Row"]
@@ -66,3 +67,18 @@ class Row(tuple):
 
     def __reduce__(self):  # pickling keeps the field names
         return (Row._make, (self.__fields__, tuple(self)))
+
+
+@functools.lru_cache(maxsize=256)
+def row_class(names: tuple[str, ...]) -> type:
+    """A Row subclass whose field names live on the class, so result rows cost one tuple each.
+
+    Results build their rows with ``tuple.__new__(cls, values)``: no per-row attribute is set.
+    """
+    return type("Row", (Row,), {"__fields__": names, "__slots__": ()})
+
+
+def make_rows(names: tuple[str, ...], rows) -> list[Row]:
+    cls = row_class(tuple(names))
+    new = tuple.__new__
+    return [new(cls, r) for r in rows]

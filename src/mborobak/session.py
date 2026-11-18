@@ -16,7 +16,14 @@ from .errors import (
     UnsupportedOperationError,
     caller_location,
 )
-from .execution import ConversionError, ExecutionMetrics, Executor, QueryCounter, convert_rows
+from .execution import (
+    ConversionError,
+    ExecutionMetrics,
+    Executor,
+    QueryCounter,
+    convert_columns,
+    convert_rows,
+)
 
 __all__ = ["MborobakSession"]
 
@@ -274,7 +281,7 @@ class MborobakSession:
                 self._sql_cache.popitem(last=False)
         return stmt, False
 
-    def _execute(self, plan: P.Plan, action: str, operation: str):
+    def _execute(self, plan: P.Plan, action: str, operation: str, as_columns: bool = False):
         self._check_open()
         if self._executor is None:
             raise MborobakConnectionError("this session has no IRIS connection")
@@ -286,7 +293,7 @@ class MborobakSession:
         rows, server_ms, fetch_ms = self._executor.run(stmt.text, stmt.params, operation, candidates)
         t2 = time.perf_counter()
         try:
-            converted = convert_rows(rows, stmt.schema)
+            converted = convert_columns(rows, stmt.schema) if as_columns else convert_rows(rows, stmt.schema)
         except ConversionError as exc:
             from .errors import MborobakArithmeticError
 
@@ -294,7 +301,7 @@ class MborobakSession:
         fetch_ms += (time.perf_counter() - t2) * 1000
         self.lastExecution = ExecutionMetrics(
             action=action, sql=stmt.text, params=list(stmt.params), data_queries=1,
-            schema_lookups=self._counter.schema_lookups - lookups_before, rows=len(converted),
+            schema_lookups=self._counter.schema_lookups - lookups_before, rows=len(rows),
             python_ms=(t1 - t0) * 1000, server_ms=server_ms, fetch_ms=fetch_ms, cache_hit=cache_hit)
         return tuple(stmt.schema.fieldNames()), converted
 

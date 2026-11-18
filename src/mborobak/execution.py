@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import functools
 import math
 import re
 import time
@@ -159,12 +160,68 @@ def converter(t: DataType):
     return lambda v: v
 
 
+def _column_converter(t: DataType, types: set[type]):
+    """A function for one column, or None when the driver's values already have the schema type.
+
+    The functions are C-level callables where possible (``int``, ``float``, ``date.fromisoformat``, a
+    partial of ``Decimal.quantize``), so ``map`` runs them without a Python frame per value.
+    """
+    values = types - {type(None)}
+    if not values:
+        return None
+    if isinstance(t, (IntegerType, LongType)):
+        return None if values == {int} else _to_int
+    if isinstance(t, DoubleType):
+        if values == {float}:
+            return None
+        return _to_float if str in values else float
+    if isinstance(t, DecimalType):
+        quantum = decimal.Decimal(1).scaleb(-t.scale)
+        if values == {decimal.Decimal}:
+            return functools.partial(decimal.Decimal.quantize, exp=quantum, rounding=decimal.ROUND_HALF_UP)
+        return _decimal_converter(t)
+    if isinstance(t, StringType):
+        return None if values == {str} else _to_str
+    if isinstance(t, BooleanType):
+        return None if values == {bool} else _to_bool
+    if isinstance(t, DateType):
+        if values == {str}:
+            return datetime.date.fromisoformat  # the driver returns DATE as 'YYYY-MM-DD'
+        return None if values == {datetime.date} else _to_date
+    if isinstance(t, TimestampNTZType):
+        return None if values == {datetime.datetime} else _to_timestamp
+    return None
+
+
+def convert_columns(rows, schema: StructType) -> list[list]:
+    """Rows from the driver → one list per column, each value converted to its schema type."""
+    if not rows:
+        return [[] for _ in schema.fields]
+    columns = [list(c) for c in zip(*rows)]
+    for i, field in enumerate(schema.fields):
+        col = columns[i]
+        types = set(map(type, col))
+        fn = _column_converter(field.dataType, types)
+        if fn is None:
+            continue
+        try:
+            if type(None) in types:
+                columns[i] = [None if v is None else fn(v) for v in col]
+            else:
+                columns[i] = list(map(fn, col))
+        except ConversionError:
+            raise
+        except (ValueError, TypeError, decimal.InvalidOperation) as exc:
+            raise ConversionError(f"IRIS returned a value that doesn't fit {field.name!r} "
+                                  f"({field.dataType.simpleString()}): {exc}") from None
+    return columns
+
+
 def convert_rows(rows, schema: StructType) -> list[tuple]:
-    convs = [converter(f.dataType) for f in schema.fields]
-    out = []
-    for r in rows:
-        out.append(tuple(None if v is None else c(v) for c, v in zip(convs, r)))
-    return out
+    """Rows from the driver → tuples whose values have the schema's types (compiler spec §3)."""
+    if not rows:
+        return []
+    return list(zip(*convert_columns(rows, schema)))
 
 
 class Executor:

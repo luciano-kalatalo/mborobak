@@ -20,8 +20,8 @@ from .analyzer import (
 )
 from .column import Column, to_column_expr
 from .errors import AnalysisError, ColumnNotFoundError, UnsupportedOperationError, caller_location
-from .execution import ExecutionMetrics, convert_rows
-from .row import Row
+
+from .row import Row, make_rows
 from .sql.types import BooleanType, DecimalType, LongType, NullType, StructField, StructType
 
 if TYPE_CHECKING:
@@ -395,11 +395,11 @@ class DataFrame:
 
     def collect(self) -> list[Row]:
         names, rows = self._run(self._plan, "collect", _op("collect"))
-        return [Row._make(names, r) for r in rows]
+        return make_rows(names, rows)
 
     def take(self, num: int) -> list[Row]:
         names, rows = self._run(P.Limit(self._plan, num), "take", _op("take"))
-        return [Row._make(names, r) for r in rows]
+        return make_rows(names, rows)
 
     def head(self, n: int | None = None):
         if n is None:
@@ -428,10 +428,9 @@ class DataFrame:
             import pandas as pd
         except ImportError as exc:
             raise ImportError("toPandas() needs pandas: pip install mborobak[pandas]") from exc
-        names, rows = self._run(self._plan, "toPandas", _op("toPandas"))
+        names, columns = self._session._execute(self._plan, "toPandas", _op("toPandas"), as_columns=True)
         t0 = time.perf_counter()
         data = {}
-        columns = list(zip(*rows)) if rows else [()] * len(names)
         for i, a in enumerate(self._plan.output):
             values = list(columns[i])
             has_null = any(v is None for v in values)
