@@ -345,7 +345,7 @@ The strategy is to give InterSystems IRIS an experience comparable to what Snowp
 
 | # | Decision | Proposal |
 | - | -------- | -------- |
-| D1 | IRIS version | **Decided (changed for the contest, §1.1):** InterSystems IRIS 2026.3.0AI build 154, AI Hub Community image. Development, tests and benchmarks run on this build. The behavior study must be re-run on it, since the first pass used a 2026.2 build |
+| D1 | IRIS version | **Decided (changed for the contest, §1.1):** InterSystems IRIS 2026.3.0AI build 154, AI Hub Community image, for testing and submission. Until that image is downloaded, development continues on the local IRIS 2026.2 container; the behavior study and the test suite are re-run on build 154 before submission |
 | D2 | Supported Python versions | **Decided:** Python 3.11 and newer (3.10 reached end of life in October 2026), tested in CI |
 | D3 | Driver | **Decided:** official `intersystems-irispython` DB-API driver, version 5.4 or later |
 | D4 | `union()` semantics | **Decided:** same as PySpark (`UNION ALL` by position); explicit `distinct()` to deduplicate |
