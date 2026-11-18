@@ -1,0 +1,153 @@
+{
+ "meta.version": {
+  "result": "IRIS for UNIX (Ubuntu Server LTS for ARM64 Containers) 2026.2 (Build 221U) Fri Jun 26 2026 09:59:12 EDT"
+ },
+ "num08.mod_and_hash": {
+  "sql": "SELECT a, b, MOD(a, b), a # b FROM MborobakProbe.M ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    -7,
+    3,
+    -1,
+    2
+   ],
+   [
+    7,
+    -3,
+    1,
+    -2
+   ],
+   [
+    -7,
+    -3,
+    -1,
+    -1
+   ],
+   [
+    7,
+    3,
+    1,
+    1
+   ]
+  ]
+ },
+ "cast07.isnumeric_special": {
+  "sql": "SELECT s, ISNUMERIC(s), ISNUMERIC(TRIM(s)) FROM MborobakProbe.M ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    "NaN",
+    0,
+    0
+   ],
+   [
+    "Infinity",
+    0,
+    0
+   ],
+   [
+    "-Infinity",
+    0,
+    0
+   ],
+   [
+    "inf",
+    0,
+    0
+   ]
+  ]
+ },
+ "cast09.double_to_int": {
+  "sql": "SELECT d, CAST(d AS INTEGER), CAST(d AS BIGINT) FROM MborobakProbe.M ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    2.7,
+    2,
+    2
+   ],
+   [
+    -2.7,
+    -2,
+    -2
+   ],
+   [
+    0.1,
+    0,
+    0
+   ],
+   [
+    1e+20,
+    100000000000000000000,
+    100000000000000000000
+   ]
+  ]
+ },
+ "cast09.numeric_to_int": {
+  "sql": "SELECT n, CAST(n AS INTEGER) FROM MborobakProbe.M ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    "1.5000",
+    1
+   ],
+   [
+    "-0.1000",
+    0
+   ],
+   [
+    100,
+    100
+   ],
+   [
+    null,
+    null
+   ]
+  ]
+ },
+ "cast12.double_to_varchar": {
+  "sql": "SELECT d, CAST(d AS VARCHAR(40)) FROM MborobakProbe.M ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    2.7,
+    "2.7000000000000001776"
+   ],
+   [
+    -2.7,
+    "-2.7000000000000001776"
+   ],
+   [
+    0.1,
+    ".10000000000000000556"
+   ],
+   [
+    1e+20,
+    "100000000000000000000"
+   ]
+  ]
+ },
+ "cast11_13.other_to_varchar": {
+  "sql": "SELECT CAST(n AS VARCHAR(40)), CAST(a AS VARCHAR(10)), CAST(dt AS VARCHAR(40)), CAST(ts AS VARCHAR(40)) FROM MborobakProbe.M WHERE id = 1",
+  "status": "ok",
+  "result": [
+   [
+    "1.5",
+    "-7",
+    "2026-01-02",
+    "2026-01-02 03:04:05.123456"
+   ]
+  ]
+ },
+ "cast14.text_to_date_timestamp": {
+  "sql": "SELECT CAST('2026-01-02' AS DATE), CAST('2026-01-02 03:04:05.5' AS TIMESTAMP)",
+  "status": "ok",
+  "result": [
+   [
+    "2026-01-02",
+    "2026-01-02 03:04:05.500000"
+   ]
+  ]
+ }
+}
