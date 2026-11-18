@@ -57,7 +57,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | STR-12 | `''` vs NULL | Distinct | Distinct | Passed through | Same | S§2.6 / diff |
 | STR-13 | NULL in string concatenation | NULL | NULL | — (concat is P1) | Same | S§2.6 / doc |
 | STR-14 | `like` escape character | `\` by default | No default escape | P0 has no escape support | Known difference: patterns containing `\` differ. Escapes are P1 | — / doc |
-| STR-15 | Cost of `%EXACT` | — | May lose index use | — | Open (spec O4): measured in the benchmark | S§2.5 |
+| STR-15 | Cost of `%EXACT` | — | Index still used, but equality filters on indexed strings read every candidate row: 3.3× slower count at 1M rows; no cost on grouping, joins, sorts | — | Measured ([benchmark](benchmark-report-2026-11-18.md) §3.2) | S§2.5 |
 
 ### 2.2 NULL
 

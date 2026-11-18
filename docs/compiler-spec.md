@@ -510,7 +510,7 @@ Script [`probes/compiler_followup_probe.py`](../probes/compiler_followup_probe.p
 | O1 | ~~Where to read a column's collation~~ **Resolved:** `%Dictionary.CompiledProperty.Parameters` (§6.4) | — |
 | O2 | ~~A stable error trigger, and how to tell which guard fired~~ **Resolved:** row-dependent `$LISTGET(s, LENGTH(s) - LENGTH(s) - 5)` for casts (draft 0.3), no guard for division, attribution by `%msg` code (§7.5) | — |
 | O3 | ~~The exact integer pattern~~ **Resolved:** `ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1"-",1"+")1.N'` (§7.7) | — |
-| O4 | Cost of `%EXACT` at 1M rows (index loss) | Benchmark, D10 |
+| O4 | ~~Cost of `%EXACT` at 1M rows (index loss)~~ **Resolved** by the [benchmark](benchmark-report-2026-11-18.md) §3.2: the index is still used, but equality filters on indexed strings read every candidate row (3.3× slower for a count at 1M rows); no measurable cost elsewhere. D10 stands | — |
 | O5 | ~~How `-0.0` and NaN group, compare and sort~~ **Resolved** (§12.2); `MAX` ignoring NaN goes to the compatibility matrix | — |
 | O6 | Re-check everything on IRIS 2026.3.0AI build 154 (D1), including both probe scripts | Before submission |
 | O7 | Grouping and `DISTINCT` on `DOUBLE` merge `-1E19` with NULL (§7.9). Candidate: group on an extra NULL flag and return the value via `MIN(d)`, which is correct; needs a probe and a cost check | §7.9, compatibility matrix |
