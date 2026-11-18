@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.2 · 2026-11-18
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.3 · 2026-11-18
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -88,6 +88,8 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | NUM-09 | Floating-point `sum` | Order-dependent last digits | Same, also between serial and parallel plans | Compared with relative tolerance 1e-12 | Same within tolerance (scope §8.2) | S§2.8 / diff |
 | NUM-10 | Decimal and integer results | Exact | Exact | Compared exactly | Same | S§2.8 |
 | NUM-11 | Type of `count` | `LONG`, never NULL | Integer | Converted | Emulated (spec §3) | — / diff |
+| NUM-12 | `decimal` divided by an integer column or literal | `decimal` (`n / 2` → `decimal(14,6)`, `n / i` → `decimal(21,13)`); `decimal / double` → `double` | Decimal division | Spark's decimal typing, an integer literal counted by its digits; no cast to `DOUBLE` | Emulated (spec §3) | diff |
+| NUM-13 | Decimal division whose Spark type has more digits than IRIS computes (`decimal(12,4) / bigint` → `decimal(38,25)`) | Exact to the type's scale (`0.8571428571428571428571429`) | About 19 significant digits (`0.857142857142857142 9`) | Result quantized to the type's scale | Known difference: IRIS's decimal arithmetic precision | diff |
 
 ### 2.4 Casts
 
@@ -108,6 +110,8 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | CAST-13 | `decimal(10,4)` → string (`1.5000`) | `'1.5000'` (keeps scale) | `'1.5'` (drops trailing zeros) | Plain `CAST` | Known difference; same fix candidate as CAST-12 | P-d / diff |
 | CAST-14 | string → `date`, `timestamp` (ISO text) | Parsed | Parsed (`'2026-01-02'`, `'… 03:04:05.5'`) | Plain `CAST` | Same; invalid text **to verify** | P-d / diff |
 | CAST-15 | `double` NaN, +∞, −∞ → `int`/`long` | Error (ANSI) | NaN becomes **0 silently**; ±∞ come back as text (`'inf'`) the driver can't read | Range check (NaN caught by `x <> x`); `MborobakArithmeticError` | Emulated (spec §7.7) | diff |
+| CAST-16 | `boolean` → string | `'true'` / `'false'` | `'1'` / `'0'` (BIT, or the 1/0 `CASE` of a condition) | `CASE … THEN 'true' … THEN 'false' END` | Emulated (spec §7.7) | diff |
+| CAST-17 | Nested casts (`x.cast("string").cast("double").cast("int")`) | Same values as one by one | — | Each guarded cast's operand is computed once, in a subquery column | Same (spec §7.7) | diff |
 
 ### 2.5 Floating-point special values
 
@@ -134,6 +138,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | ORD-03 | `limit` without `orderBy` | Any `n` rows | Any `n` rows | `TOP n` | Same; tests compare as sets | — / diff |
 | ORD-04 | Ties in `orderBy` | Unspecified order | Unspecified order | Passed through | Same; tests sort by all columns before comparing | — / doc |
 | ORD-05 | `limit` inside a subquery | Supported | `LIMIT` rejected; `TOP` works | `TOP` everywhere | Emulated (spec §7.3) | S§2.2 / diff |
+| ORD-06 | `orderBy` → `select` without the sort key → `limit` → `filter` | Order kept | — | Sort key carried as a hidden subquery column; order applied again outside | Emulated (spec §7.2) | diff |
 
 ### 2.7 Grouping, joins and union
 
@@ -141,6 +146,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 |----|----------|---------|------|----------|--------|----------|
 | GRP-01 | `groupBy` by a column position in `sql()` (`GROUP BY 1`) | Position | Constant 1 | User's SQL passed through | Known difference in `sql()` only; the compiler never emits positions (spec §7.8) | S§2.3 / doc |
 | GRP-02 | Filter after `agg()` | `HAVING` semantics | Same | `HAVING` or outer `WHERE` | Same | — / diff |
+| GRP-03 | `groupBy(k).min()` / `.avg()` without arguments | All numeric columns, grouping columns included | — | Same | Same | diff |
 | JOIN-01 | Join types inner, left, right, full, cross | Supported | Supported | Passed through | Same | P-b / diff |
 | JOIN-02 | `join(on="id")` output columns | Key once, then left, then right | — | Built by the analyzer | Emulated (spec §6.3) | — / diff |
 | JOIN-03 | `join(on="id", how="full")` key value | Coalesced key | — | `COALESCE(a.id, b.id)` | Emulated (spec §6.3) | P-b / diff |
@@ -150,6 +156,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | UNI-01 | `union` | `UNION ALL` by position | — | `UNION ALL` | Same (D4) | — / diff |
 | UNI-02 | `union` of different numeric types | Widened (`int` + `decimal(10,2)` → `decimal(12,2)`) | — | Widened (int → long → decimal → double) | Same | — / diff |
 | UNI-03 | `union` of `int` and `string` | Widened to `bigint`; strings cast at run time (`'7'` works, `'a'` fails) | — | `AnalysisError` at `union()` | Known difference: stricter than Spark (spec §6.2) | — / diff |
+| UNI-04 | `union` where one side lists a column twice (`select(col("k"), col("k").alias("k2"))`) | Both columns kept | — | Each output column has its own id | Same | diff |
 
 ### 2.8 Dates and time
 
@@ -171,6 +178,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | NAME-05 | Reserved words as names | Allowed | Allowed quoted | Always quoted | Same | S§2.4 / doc |
 | NAME-06 | Unqualified table name | Current database | `SQLUser` | `SQLUser` | Same in effect | S§2.4 |
 | NAME-07 | `filter` or `orderBy` on a column an earlier `select` dropped (`df.select("id").filter(col("i") > 1)`) | Allowed: Spark resolves the column from the input | — | Same: the column is added back below the `select`, then projected away again | Emulated (spec §6.1) | diff |
+| NAME-08 | Names from `agg({"x": "mean", "*": "count"})` | `avg(x)`, `count(1)` (dict order not kept) | — | Same names, in insertion order | Same (column order may differ) | diff |
 
 ### 2.10 Results and pandas
 
@@ -231,6 +239,7 @@ A check in CI reads the IDs from this document and the test names from the suite
 For the README and the docs site, the P0 known differences fit in one short list:
 
 - Integer and decimal overflow in arithmetic and text casts are not detected (NUM-04 to NUM-06, CAST-08).
+- Decimal division keeps about 19 significant digits, fewer than Spark's widest decimal results (NUM-13).
 - `max` ignores NaN (FP-06).
 - The `DOUBLE` value `-1E19` groups together with NULL (FP-10).
 - `like` has no escape character (STR-14).

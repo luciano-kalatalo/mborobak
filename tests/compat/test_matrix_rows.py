@@ -423,3 +423,51 @@ def test_RES_04_show_format(pair, capsys):
     sp.show()
     sp_out = capsys.readouterr().out
     assert mb_out == sp_out
+
+
+# --------------------------------------------------------------------------- rows added after the code review
+
+
+def test_NUM_12_decimal_divided_by_integer(pair):
+    # Rows with non-zero divisors only (a zero divisor fails in both, NUM-07).
+    assert_same(*pair.both("nums", lambda F, df: df.filter(F.col("id").isin(3, 7, 10)).select(
+        "id", F.col("n") / 2, F.col("n") / F.col("i"), F.col("n") / F.col("d"))))
+
+
+@known_difference("NUM-13")
+def test_NUM_13_decimal_division_beyond_iris_precision(pair):
+    # decimal(12,4) / bigint is decimal(38,25) in Spark; IRIS computes about 19 significant digits.
+    assert_same(*pair.both("nums", lambda F, df: df.filter(F.col("id") == 10).select(F.col("n4") / F.col("l"))))
+
+
+def test_CAST_16_boolean_to_string(pair):
+    assert_same(*pair.both("nums", lambda F, df: df.select(
+        "id", (F.col("i") > 1).cast("string"), F.col("i").isNull().cast("string"))))
+
+
+def test_CAST_17_nested_casts(pair):
+    assert_same(*pair.both("nums", lambda F, df: df.filter(F.col("id").isin(1, 2, 3, 10)).select(
+        "id", (F.col("d") * 2).cast("string").cast("double").cast("int").alias("x"))))
+
+
+def test_UNI_04_union_with_a_repeated_column(pair):
+    def build(F, df):
+        return df.select(F.col("k"), F.col("k").alias("k2")).union(df.select("id", "k"))
+
+    assert_same(*pair.both("left", build))
+
+
+def test_ORD_06_order_kept_when_select_drops_the_sort_key(pair):
+    assert_same(*pair.both("nums", lambda F, df: df.orderBy(F.col("n").desc(), "id").select("id").limit(5)
+                           .filter(F.col("id") > 1)), ordered=True)
+
+
+def test_NAME_08_agg_dict_names(pair):
+    mb, sp = pair.both("nums", lambda F, df: df.groupBy("i").agg({"n": "mean", "d": "count", "*": "count"}))
+    assert sorted(mb.columns) == sorted(sp.columns)  # Spark's dict order is not the insertion order
+    assert_same(mb.select(*sorted(mb.columns)), sp.select(*sorted(sp.columns)))
+
+
+def test_GRP_03_min_max_without_columns(pair):
+    assert_same(*pair.both("nums", lambda F, df: df.groupBy("i").min()))
+    assert_same(*pair.both("nums", lambda F, df: df.groupBy("i").avg()))

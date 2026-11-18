@@ -46,7 +46,6 @@ class Expr:
 @dataclass(frozen=True)
 class UnresolvedColumn(Expr):
     name: str
-    plan_id: int | None = None  # set for df["x"] (compiler spec §6.1)
 
 
 @dataclass(frozen=True)
@@ -186,9 +185,6 @@ class Coalesce(Expr):
         return self.values
 
 
-AGG_FUNCTIONS = ("count", "sum", "avg", "min", "max")
-
-
 @dataclass(frozen=True)
 class AggregateCall(Expr):
     function: str  # count, sum, avg, min, max
@@ -232,27 +228,45 @@ class Exact(Expr):
         return (self.child,)
 
 
-def transform(expr: Expr, fn) -> Expr:
-    """Bottom-up rewrite: children first, then ``fn`` on the rebuilt node."""
+def _map_children(expr: Expr, go) -> Expr:
+    """``expr`` with ``go`` applied to every child expression (fields, tuples, CASE branch pairs)."""
     import dataclasses
 
     if not dataclasses.is_dataclass(expr):
-        return fn(expr)
+        return expr
     changes = {}
     for f in dataclasses.fields(expr):
         value = getattr(expr, f.name)
         if isinstance(value, Expr):
-            new = transform(value, fn)
+            new = go(value)
         elif isinstance(value, tuple) and value and all(isinstance(v, Expr) for v in value):
-            new = tuple(transform(v, fn) for v in value)
+            new = tuple(go(v) for v in value)
         elif isinstance(value, tuple) and value and all(isinstance(v, tuple) for v in value):
-            new = tuple(tuple(transform(x, fn) if isinstance(x, Expr) else x for x in v) for v in value)
+            new = tuple(tuple(go(x) if isinstance(x, Expr) else x for x in v) for v in value)
         else:
             continue
-        if new is not value:
+        if not _same(new, value):  # identity, not ==: cheap, and NaN literals never equal themselves
             changes[f.name] = new
-    rebuilt = dataclasses.replace(expr, **changes) if changes else expr
-    return fn(rebuilt)
+    return dataclasses.replace(expr, **changes) if changes else expr
+
+
+def _same(a, b) -> bool:
+    if isinstance(a, tuple) and isinstance(b, tuple) and len(a) == len(b):
+        return all(_same(x, y) for x, y in zip(a, b))
+    return a is b
+
+
+def transform(expr: Expr, fn) -> Expr:
+    """Bottom-up rewrite: children first, then ``fn`` on the rebuilt node."""
+    return fn(_map_children(expr, lambda c: transform(c, fn)))
+
+
+def transform_down(expr: Expr, fn) -> Expr:
+    """Top-down rewrite: ``fn`` returns a replacement (not descended into) or None to keep going."""
+    replaced = fn(expr)
+    if replaced is not None:
+        return replaced
+    return _map_children(expr, lambda c: transform_down(c, fn))
 
 
 def walk(expr: Expr):

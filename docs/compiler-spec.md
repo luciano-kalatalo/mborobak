@@ -62,7 +62,8 @@ Other IRIS types (streams, `%List`, binary) are unsupported in P0: selecting suc
 | Expression | Result type |
 |------------|-------------|
 | `int + int`, `-`, `*` | `IntegerType` (ANSI overflow: §7.6) |
-| `int / int`, any `/` with a non-decimal side | `DoubleType` |
+| `int / int`, any `/` with a `double` side | `DoubleType` |
+| `decimal / int`, `int / decimal` | `DecimalType` by Spark's division rule, the integer side counting as `decimal(10,0)` (`long`: `decimal(20,0)`) and an integer literal as `decimal(<digits>,0)`; above 38 digits the scale is cut to keep the integer digits (minimum 6). IRIS computes about 19 significant digits (matrix NUM-13) |
 | `decimal op decimal` | `DecimalType` with Spark's precision/scale rules, capped at 38 |
 | `int op double` | `DoubleType` |
 | comparisons, `isNull`, `isin`, `like`, `between`, `&`, `\|`, `~` | `BooleanType` |
@@ -79,7 +80,7 @@ All expression nodes are immutable dataclasses. Every expression knows its child
 
 | Node | Fields | Notes |
 |------|--------|-------|
-| `UnresolvedColumn` | `name`, `plan_id` (optional) | `col("x")` has no `plan_id`; `df["x"]` and `df.x` carry the id of `df`'s plan |
+| `UnresolvedColumn` | `name` | `col("x")`; `df["x"]` and `df.x` resolve at once to an `AttrRef` of `df`'s column |
 | `ColumnRef` | `column_id`, `name`, `type`, `nullable`, `collation` | Resolved form; `column_id` is unique within a session |
 | `Literal` | `value`, `type` | Always becomes a `?` parameter (§9.5), never inline text |
 | `Alias` | `child`, `name` | Gives an output column its name |
@@ -197,6 +198,7 @@ All forms verified **(probe 2026-11-18b)**. With `string_semantics="iris"`, no w
 - `ORDER BY` is emitted only on the outermost `SELECT`, or inside a subquery together with `TOP` (study §2.1).
 - A `Sort` below other operators (for example `orderBy().limit().filter()`) is kept inside its subquery only when a `Limit` depends on it; it is then rendered with `TOP n`. The final output order is re-applied at the outermost level whenever any `Sort` exists in the plan and no later operator destroys order (`Aggregate`, `Distinct`, `Union`, `Join` destroy it, as in Spark).
 - A `Sort` that no `Limit` depends on and that is followed by an order-destroying operator is dropped (it has no observable effect).
+- When a subquery has to be closed over a sorted block whose sort key a `select` dropped (`orderBy(d).select(id).limit(3).filter(…)`), the key travels up as a hidden column of the subquery, so the order can be applied again outside (matrix ORD-06). Not under `DISTINCT`, where an extra column would change the result.
 
 ### 7.3 Limits
 
@@ -237,6 +239,7 @@ IRIS doesn't overflow `INTEGER` arithmetic (study §2.6). In P0 this is a **docu
 | string → integer, long | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1"-",1"+")1.N' THEN CAST(TRIM(s) AS INTEGER) ELSE $LISTGET(s, LENGTH(s) - LENGTH(s) - 5) END` |
 | string → double | As for decimal, plus `WHEN UPPER(TRIM(s)) IN ('NAN') THEN ?`, `… IN ('INF', '+INF', 'INFINITY', '+INFINITY') THEN ?` and `… IN ('-INF', '-INFINITY') THEN ?` before the `ISNUMERIC` test, with NaN, +∞ and −∞ as parameters (CAST-07) |
 | string → decimal | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 THEN CAST(TRIM(s) AS NUMERIC(p,s)) ELSE $LISTGET(s, LENGTH(s) - LENGTH(s) - 5) END` |
+| boolean → string | `CASE WHEN p THEN 'true' WHEN NOT (p) THEN 'false' END` (or `b = 1` / `b = 0` for a `BIT` value); a plain `CAST` gives `'1'`/`'0'` (CAST-16) |
 | any guarded cast of a constant (`lit("7").cast("int")`) | Folded in Python with Spark's rules and sent as one parameter; invalid input raises the same Mborobak error when the action runs. A constant has no row value for the trigger to depend on (§7.5) |
 | double, decimal → integer, long | `CASE WHEN x IS NULL THEN NULL WHEN x <> x OR x >= 2147483648 OR x <= -2147483649 THEN EXP(100000 + LENGTH(CAST(x AS VARCHAR(60))) - LENGTH(CAST(x AS VARCHAR(60)))) ELSE CAST(x AS INTEGER) END` (bounds ±2⁶³ for `long`) |
 | numeric → string, other numeric → numeric, date/timestamp ↔ string | Plain `CAST` |
@@ -249,6 +252,8 @@ Why each part is there:
 - **The integer pattern** rejects what `ISNUMERIC` accepts but an integer cast must not: `'1.5'`, `'1e3'`, `'1.'`, `'.5'`. It accepts an optional sign and leading zeros (`'+3'` → 3, `'007'` → 7). `%PATTERN` alone would accept `'１'`, so both tests are needed. The pattern is emitted as SQL text, not a parameter: it is fixed compiler text, never user input (§9.5).
 
 Verified on 18 inputs **(probe 2026-11-18c)**: the combined rule accepts exactly the integer-shaped strings.
+
+**Operands are computed once.** The guarded forms repeat their operand up to 13 times. When the operand is itself an expression (not a column or a constant), it becomes a hidden column of a subquery and the cast refers to that column; nested casts are handled the same way, innermost first. Operands containing an aggregate stay in place, since they must be computed after the `GROUP BY`.
 
 **Known difference:** IRIS returns `12345678901234567890` from `CAST(… AS INTEGER)` and `CAST(… AS BIGINT)` without an error, where Spark raises an overflow for `long`. This falls under §7.6. Values above 18 digits are rare in text columns; the compatibility matrix lists the case.
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import difflib
-from dataclasses import replace
 
 from . import expressions as E
 from .errors import (
@@ -170,26 +169,37 @@ def _as_decimal(t: DataType) -> DecimalType:
     return _DEC_LONG if isinstance(t, LongType) else _DEC_INT
 
 
+def _bounded_decimal(precision: int, scale: int) -> DecimalType:
+    """Spark's adjustPrecisionScale: above 38 digits, keep the integer digits and cut the scale (min 6)."""
+    if precision <= 38:
+        return DecimalType(precision, scale)
+    int_digits = precision - scale
+    return DecimalType(38, max(38 - int_digits, min(scale, 6)))
+
+
+def _literal_decimal(expr: E.Expr, t: DataType, other: DataType) -> DataType:
+    """An integer literal next to a decimal is typed by its digits, as Spark does (``n / 2``)."""
+    if isinstance(expr, E.Literal) and t.is_integral and isinstance(other, DecimalType) \
+            and isinstance(expr.value, int):
+        return DecimalType(max(1, len(str(abs(expr.value)))), 0)
+    return t
+
+
 def _numeric_result(op: str, lt: DataType, rt: DataType) -> DataType:
     if isinstance(lt, NullType):
         lt = rt
     if isinstance(rt, NullType):
         rt = lt
-    if op == "/":
-        if isinstance(lt, DecimalType) and isinstance(rt, DecimalType):
-            # Spark: p1 - s1 + s2 + max(6, s1 + p2 + 1), scale max(6, s1 + p2 + 1), capped at 38.
-            scale = max(6, lt.scale + rt.precision + 1)
-            precision = lt.precision - lt.scale + rt.scale + scale
-            if precision > 38:
-                scale = max(6, scale - (precision - 38))
-                precision = 38
-            return DecimalType(precision, min(scale, 38))
-        return DoubleType()
     if isinstance(lt, DoubleType) or isinstance(rt, DoubleType):
         return DoubleType()
     if isinstance(lt, DecimalType) or isinstance(rt, DecimalType):
+        # Spark's DecimalPrecision: an integer side counts as decimal(10,0) (int) or decimal(20,0)
+        # (long); an integer literal as decimal(<its digits>,0), see infer().
         a, b = _as_decimal(lt), _as_decimal(rt)
-        if op in "+-":
+        if op == "/":
+            scale = max(6, a.scale + b.precision + 1)
+            precision = a.precision - a.scale + b.scale + scale
+        elif op in "+-":
             scale = max(a.scale, b.scale)
             precision = max(a.precision - a.scale, b.precision - b.scale) + scale + 1
         elif op == "*":
@@ -198,7 +208,9 @@ def _numeric_result(op: str, lt: DataType, rt: DataType) -> DataType:
         else:  # %
             scale = max(a.scale, b.scale)
             precision = min(a.precision - a.scale, b.precision - b.scale) + scale
-        return DecimalType(min(precision, 38), min(scale, 38))
+        return _bounded_decimal(precision, scale)
+    if op == "/":
+        return DoubleType()
     if isinstance(lt, LongType) or isinstance(rt, LongType):
         return LongType()
     return IntegerType()
@@ -246,6 +258,7 @@ def infer(expr: E.Expr, operation: str | None = None) -> tuple[DataType, bool]:
                 raise AnalysisError(
                     f"arithmetic '{expr.op}' needs numbers, got {lt.simpleString()} and {rt.simpleString()}",
                     operation=operation)
+        lt, rt = _literal_decimal(expr.left, lt, rt), _literal_decimal(expr.right, rt, lt)
         return _numeric_result(expr.op, lt, rt), ln or rn or expr.op in "/%"
     if isinstance(expr, E.Negate):
         t, n = infer(expr.child, operation)
@@ -373,6 +386,20 @@ def output_name(original: E.Expr) -> str:
     return expr_name(original)
 
 
+def unique_ids(items: list[tuple[E.Attribute, E.Expr]]) -> list[tuple[E.Attribute, E.Expr]]:
+    """Every output column of one node gets its own id: a column listed twice (``select("i", col("i")
+    .alias("j"))``) keeps the input's id the first time and gets a new one after. Compilation keys
+    subquery names, casts and substitutions by id, so a shared id would merge the two columns."""
+    seen: set[int] = set()
+    out = []
+    for attr, expr in items:
+        if attr.id in seen:
+            attr = E.Attribute(E.new_id(), attr.name, attr.dtype, attr.nullable, attr.collation)
+        seen.add(attr.id)
+        out.append((attr, expr))
+    return out
+
+
 def make_attr(name: str, resolved: E.Expr, operation: str | None) -> tuple[E.Attribute, E.Expr]:
     """Output attribute for a projected expression; plain column refs keep their id."""
     expr = resolved.child if isinstance(resolved, E.Alias) else resolved
@@ -407,6 +434,3 @@ def check_grouped(expr: E.Expr, keys: list[E.Expr], operation: str | None) -> No
 
     go(expr)
 
-
-def with_name(attr: E.Attribute, name: str) -> E.Attribute:
-    return replace(attr, name=name)

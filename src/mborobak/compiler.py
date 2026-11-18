@@ -128,88 +128,86 @@ class Compiler:
 
     def translate(self, expr: E.Expr) -> E.Expr:
         """Insert ``Exact`` where collation changes the result (§7.1)."""
-        t = self.translate
-        if isinstance(expr, E.Comparison):
-            return E.Comparison(expr.op, self.exact(t(expr.left)), self.exact(t(expr.right)))
-        if isinstance(expr, E.In):
-            return E.In(self.exact(t(expr.child)), tuple(t(v) for v in expr.values))
-        if isinstance(expr, E.Like):
-            return E.Like(self.exact(t(expr.child)), expr.pattern)
-        if isinstance(expr, E.AggregateCall):
-            child = expr.child if isinstance(expr.child, E.Star) else t(expr.child)
-            if expr.function in ("min", "max") or expr.distinct:
-                child = self.exact(child) if not isinstance(child, E.Star) else child
-            return E.AggregateCall(expr.function, child, expr.distinct)
-        if isinstance(expr, E.Alias):
-            return E.Alias(t(expr.child), expr.name)
-        if isinstance(expr, E.BinaryArithmetic):
-            return E.BinaryArithmetic(expr.op, t(expr.left), t(expr.right))
-        if isinstance(expr, E.Negate):
-            return E.Negate(t(expr.child))
-        if isinstance(expr, E.And):
-            return E.And(t(expr.left), t(expr.right))
-        if isinstance(expr, E.Or):
-            return E.Or(t(expr.left), t(expr.right))
-        if isinstance(expr, E.Not):
-            return E.Not(t(expr.child))
-        if isinstance(expr, E.IsNull):
-            return E.IsNull(t(expr.child), expr.negated)
-        if isinstance(expr, E.Cast):
-            return E.Cast(t(expr.child), expr.to)
-        if isinstance(expr, E.CaseWhen):
-            return E.CaseWhen(tuple((t(c), t(v)) for c, v in expr.branches),
-                              t(expr.otherwise) if expr.otherwise is not None else None)
-        if isinstance(expr, E.Coalesce):
-            return E.Coalesce(tuple(t(v) for v in expr.values))
-        return expr
+
+        def rule(e: E.Expr) -> E.Expr:  # children are already translated (bottom-up)
+            if isinstance(e, E.Comparison):
+                return E.Comparison(e.op, self.exact(e.left), self.exact(e.right))
+            if isinstance(e, E.In):
+                return E.In(self.exact(e.child), e.values)
+            if isinstance(e, E.Like):
+                return E.Like(self.exact(e.child), e.pattern)
+            if isinstance(e, E.AggregateCall) and not isinstance(e.child, E.Star) \
+                    and (e.function in ("min", "max") or e.distinct):
+                return E.AggregateCall(e.function, self.exact(e.child), e.distinct)
+            return e
+
+        return E.transform(expr, rule)
 
     # ---------------------------------------------------------------- substitution
     @staticmethod
     def substitute(expr: E.Expr, env: dict[int, E.Expr]) -> E.Expr:
-        def go(e: E.Expr) -> E.Expr:
+        """Plan-level column references → this block's SQL expressions."""
+
+        def rule(e: E.Expr) -> E.Expr:
             if isinstance(e, E.AttrRef):
                 return env[e.attr.id]
             if isinstance(e, E.Alias):
-                return go(e.child)
-            if isinstance(e, E.Exact):
-                inner = go(e.child)
-                return inner if isinstance(inner, E.Exact) else E.Exact(inner)
-            if isinstance(e, (E.Literal, E.SqlCol, E.Star)):
-                return e
-            if isinstance(e, E.BinaryArithmetic):
-                return E.BinaryArithmetic(e.op, go(e.left), go(e.right))
-            if isinstance(e, E.Negate):
-                return E.Negate(go(e.child))
-            if isinstance(e, E.Comparison):
-                return E.Comparison(e.op, go(e.left), go(e.right))
-            if isinstance(e, E.And):
-                return E.And(go(e.left), go(e.right))
-            if isinstance(e, E.Or):
-                return E.Or(go(e.left), go(e.right))
-            if isinstance(e, E.Not):
-                return E.Not(go(e.child))
-            if isinstance(e, E.IsNull):
-                return E.IsNull(go(e.child), e.negated)
-            if isinstance(e, E.In):
-                return E.In(go(e.child), tuple(go(v) for v in e.values))
-            if isinstance(e, E.Like):
-                return E.Like(go(e.child), go(e.pattern))
-            if isinstance(e, E.Cast):
-                return E.Cast(go(e.child), e.to)
-            if isinstance(e, E.CaseWhen):
-                return E.CaseWhen(tuple((go(c), go(v)) for c, v in e.branches),
-                                  go(e.otherwise) if e.otherwise is not None else None)
-            if isinstance(e, E.AggregateCall):
-                return E.AggregateCall(e.function, go(e.child), e.distinct)
-            if isinstance(e, E.Coalesce):
-                return E.Coalesce(tuple(go(v) for v in e.values))
-            raise TypeError(f"cannot substitute {type(e).__name__}")
+                return e.child
+            if isinstance(e, E.Exact) and isinstance(e.child, E.Exact):
+                return e.child
+            return e
 
-        return go(expr)
+        return E.transform(expr, rule)
 
     def sql(self, expr: E.Expr, block: Block) -> E.Expr:
         """Plan-level expression → SQL-level expression of ``block``."""
         return self.substitute(self.translate(expr), block.env)
+
+    # ---------------------------------------------------------------- guarded casts
+    @staticmethod
+    def _is_guarded_cast(e: E.Expr) -> bool:
+        """A cast rendered with its operand repeated (§7.7), over an operand worth computing once."""
+        if not isinstance(e, E.Cast) or isinstance(e.child, (E.AttrRef, E.Literal, E.SqlCol)):
+            return False
+        if E.contains_aggregate(e.child):
+            return False  # the operand must stay after the GROUP BY
+        src, _ = infer(e.child)
+        to = e.to
+        return ((isinstance(src, StringType) and to.is_numeric)
+                or (isinstance(src, (DoubleType, DecimalType)) and to.is_integral)
+                or (isinstance(src, BooleanType) and isinstance(to, StringType)))
+
+    def hoist(self, b: Block, exprs: list[E.Expr]) -> tuple[Block, list[E.Expr]]:
+        """Compute the operands of guarded casts once, as hidden columns of a subquery.
+
+        A guarded cast repeats its operand up to 13 times; nested casts would multiply that. Each
+        complex operand becomes a hidden column of ``b``, ``b`` becomes a subquery, and the cast
+        refers to the column instead. Operands are hoisted recursively, innermost first.
+        """
+        pre: list[tuple[E.Attribute, E.Expr]] = []
+
+        def replace(e: E.Expr):
+            if self._is_guarded_cast(e):
+                dtype, nullable = infer(e.child)
+                attr = E.Attribute(E.new_id(), f"mborobak_h{E.new_id()}", dtype, nullable)
+                pre.append((attr, e.child))
+                return E.Cast(E.AttrRef(attr), e.to)
+            return None
+
+        rewritten = [E.transform_down(x, replace) for x in exprs]
+        if not pre:
+            return b, exprs
+        b, operands = self.hoist(b, [child for _, child in pre])
+        if b.distinct:
+            b = self.wrap(b, keep_order=True)  # hidden columns would change which rows are distinct
+        visible = list(b.select)
+        for (attr, _), operand in zip(pre, operands):
+            b.env[attr.id] = self.sql(operand, b)
+        b.select = visible + [attr for attr, _ in pre]
+        outer = self.wrap(b, keep_order=True)
+        hidden = {attr.id for attr, _ in pre}
+        outer.select = [a for a in outer.select if a.id not in hidden]
+        return outer, rewritten
 
     # ---------------------------------------------------------------- blocks
     def _new_alias(self) -> str:
@@ -241,12 +239,20 @@ class Compiler:
         return out
 
     def wrap(self, inner: Block, keep_order: bool) -> Block:
+        visible = list(inner.select)
+        if inner.order and keep_order and not inner.distinct:
+            # Sort keys a select dropped travel up as hidden columns, so the order can be re-applied
+            # outside (§7.2). Not under DISTINCT: an extra column would change which rows are distinct.
+            exposed = {a.id for a in inner.select}
+            hidden = {r.attr.id: r.attr for o in inner.order for r in E.walk(o.child)
+                      if isinstance(r, E.AttrRef) and r.attr.id not in exposed}
+            inner.select = inner.select + list(hidden.values())
         alias = self._new_alias()
         inner.out_names = self.unique_names(inner.select)
         outer = Block(source=inner, alias=alias)
         for a in inner.select:
             outer.env[a.id] = E.SqlCol(inner.out_names[a.id], alias, a.dtype, a.collation)
-        outer.select = list(inner.select)
+        outer.select = visible
         exposed = {a.id for a in inner.select}
         if inner.order:
             movable = all(r.attr.id in exposed for o in inner.order for r in E.walk(o.child)
@@ -265,7 +271,8 @@ class Compiler:
             b = self.build(node.child)
             if b.top is not None or b.distinct:
                 b = self.wrap(b, keep_order=True)
-            cond = self.sql(node.condition, b)
+            b, (condition,) = self.hoist(b, [node.condition])
+            cond = self.sql(condition, b)
             (b.having if b.grouped else b.where).append(cond)
             return b
 
@@ -273,7 +280,8 @@ class Compiler:
             b = self.build(node.child)
             if b.distinct:
                 b = self.wrap(b, keep_order=True)
-            for attr, expr in node.items:
+            b, exprs = self.hoist(b, [expr for _, expr in node.items])
+            for (attr, _), expr in zip(node.items, exprs):
                 b.env[attr.id] = self.sql(expr, b)
             b.select = [a for a, _ in node.items]
             return b
@@ -283,14 +291,14 @@ class Compiler:
             if b.grouped or b.top is not None or b.distinct:
                 b = self.wrap(b, keep_order=False)
             b.order = []  # aggregation destroys order (§7.2)
-            keys = []
-            for attr, expr in node.keys:
-                k = self.substitute(self.exact(self.translate(expr)), b.env)
-                keys.append(k)
+            b, exprs = self.hoist(b, [e for _, e in node.keys] + [e for _, e in node.aggs])
+            b.order = []
+            key_exprs, agg_exprs = exprs[:len(node.keys)], exprs[len(node.keys):]
+            keys = [self.substitute(self.exact(self.translate(expr)), b.env) for expr in key_exprs]
             new_env = dict(b.env)
             for (attr, _), k in zip(node.keys, keys):
                 new_env[attr.id] = k
-            for attr, expr in node.aggs:
+            for (attr, _), expr in zip(node.aggs, agg_exprs):
                 new_env[attr.id] = self.sql(expr, b)
             b.env = new_env
             b.group_by = keys
@@ -301,7 +309,8 @@ class Compiler:
             b = self.build(node.child)
             if b.top is not None:
                 b = self.wrap(b, keep_order=False)
-            b.order = list(node.orders)
+            b, orders = self.hoist(b, list(node.orders))
+            b.order = list(orders)
             return b
 
         if isinstance(node, P.Limit):
@@ -429,9 +438,11 @@ class Compiler:
         text = renderer.block(block, top_level=True)
         params = renderer.params
         if self.ctes:
-            if len({cte for cte, _ in self.ctes}) > 1:
+            if len(self.ctes) > 1:  # entries are (text, args): the same text with other args differs too
                 raise UnsupportedOperationError(
-                    "combining two different sql() queries that both use WITH is not supported")
+                    "combining sql() queries that use WITH is only supported when they are the same query "
+                    "with the same args: the WITH clause is moved to the front of the statement, where two "
+                    "of them would clash")
             cte, cte_args = self.ctes[0]
             text = f"{cte}\n{text}"
             params = list(cte_args) + params
@@ -530,6 +541,9 @@ def sql_type(t: DataType) -> str:
     if isinstance(t, TimestampNTZType):
         return "TIMESTAMP"
     raise UnsupportedOperationError(f"no IRIS type for {t.simpleString()}")
+
+
+_PREDICATES = (E.Comparison, E.And, E.Or, E.Not, E.IsNull, E.In, E.Like)
 
 
 class Renderer:
@@ -648,11 +662,10 @@ class Renderer:
         if isinstance(e, E.Exact):
             return f"%EXACT({self.value(e.child)})"
         if isinstance(e, E.BinaryArithmetic):
-            lt, _ = infer(e.left)
-            rt, _ = infer(e.right)
             if e.op == "%":
                 return f"MOD({self.value(e.left)}, {self.value(e.right)})"
-            if e.op == "/" and not (isinstance(lt, DecimalType) and isinstance(rt, DecimalType)):
+            if e.op == "/" and isinstance(infer(e)[0], DoubleType):
+                # Integer division must not truncate: Spark's result is a double (decimal stays decimal).
                 return f"(CAST({self.value(e.left)} AS DOUBLE) / {self.value(e.right)})"
             return f"({self.value(e.left)} {e.op} {self.value(e.right)})"
         if isinstance(e, E.Negate):
@@ -670,7 +683,7 @@ class Renderer:
             if isinstance(e.child, E.Star):
                 return f"{fn}(*)"
             return f"{fn}({'DISTINCT ' if e.distinct else ''}{self.value(e.child)})"
-        if isinstance(e, (E.Comparison, E.And, E.Or, E.Not, E.IsNull, E.In, E.Like)):
+        if isinstance(e, _PREDICATES):
             # §7.8: booleans in the SELECT list become CASE; NULL stays NULL.
             p = self.pred(e)
             n = self.pred(E.Not(e))
@@ -746,6 +759,13 @@ class Renderer:
                     f"WHEN {x()} <> {x()} OR {x()} >= {high} OR {x()} <= {low} "
                     f"THEN EXP(100000 + LENGTH(CAST({x()} AS VARCHAR(60))) - LENGTH(CAST({x()} AS VARCHAR(60)))) "
                     f"ELSE CAST({x()} AS {sql_type(to)}) END")
+        if isinstance(src, BooleanType) and isinstance(to, StringType):
+            # Spark writes 'true'/'false'; a plain CAST of IRIS's BIT (or of a 1/0 CASE) gives '1'/'0'.
+            if isinstance(e.child, _PREDICATES):
+                p, n = self.pred(e.child), self.pred(E.Not(e.child))
+                return f"CASE WHEN {p} THEN 'true' WHEN {n} THEN 'false' END"
+            v1, v2 = self.value(e.child), self.value(e.child)
+            return f"CASE WHEN {v1} = 1 THEN 'true' WHEN {v2} = 0 THEN 'false' END"
         if src.is_numeric and isinstance(to, BooleanType):
             v1, v2 = self.value(e.child), self.value(e.child)
             return f"CASE WHEN {v1} IS NULL THEN NULL WHEN {v2} = 0 THEN 0 ELSE 1 END"

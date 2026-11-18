@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from . import expressions as E
 from . import plan as P
 from .analyzer import (
+    unique_ids,
     check_grouped,
     wider,
     check_no_aggregate,
@@ -103,7 +104,7 @@ class DataFrame:
             if isinstance(resolved, E.SortOrder):
                 raise AnalysisError("asc()/desc() can only be used in orderBy()", operation=op)
             items.append(make_attr(output_name(original), resolved, op))
-        return self._with(P.Project(self._plan, tuple(items)))
+        return self._with(P.Project(self._plan, tuple(unique_ids(items))))
 
     def filter(self, condition: Column) -> "DataFrame":
         op = _op("filter")
@@ -469,14 +470,15 @@ class GroupedData:
             resolved = resolve(original, df._plan, operation)
             check_no_aggregate(resolved, operation, "groupBy()")
             self._keys.append(make_attr(output_name(original), resolved, operation))
+        self._keys = unique_ids(self._keys)
 
     def agg(self, *exprs: Any) -> DataFrame:
         op = _op("agg")
         from .sql import functions as F
 
         if len(exprs) == 1 and isinstance(exprs[0], dict):
-            exprs = tuple(getattr(F, fn if fn != "mean" else "avg")(c).alias(f"{fn}({c})")
-                          for c, fn in exprs[0].items())
+            # No alias: the default names are Spark's ("avg(x)" for "mean", "count(1)" for "*").
+            exprs = tuple(getattr(F, fn if fn != "mean" else "avg")(c) for c, fn in exprs[0].items())
         if not exprs:
             raise ValueError("agg() needs at least one aggregate expression")
         key_exprs = [e for _, e in self._keys]
@@ -507,11 +509,8 @@ class GroupedData:
     def _simple(self, fn: str, cols: tuple[str, ...]) -> DataFrame:
         from .sql import functions as F
 
-        if not cols:
-            attrs = self._df._plan.output
-            key_ids = {a.id for a, _ in self._keys}
-            cols = tuple(a.name for a in attrs if a.id not in key_ids and (fn in ("min", "max") or
-                                                                            a.dtype.is_numeric))
+        if not cols:  # as in Spark: every numeric column of the input, grouping columns included
+            cols = tuple(a.name for a in self._df._plan.output if a.dtype.is_numeric)
         return self.agg(*[getattr(F, fn)(c) for c in cols])
 
     def sum(self, *cols: str) -> DataFrame:  # noqa: A003

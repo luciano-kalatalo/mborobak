@@ -109,7 +109,7 @@ Unknown `mborobak.*` keys raise `UnsupportedOperationError` listing the valid ke
 - When transformations follow, the query becomes a subquery, and Mborobak adjusts it the way IRIS requires (prototype, verified on IRIS 2026.2):
   - an `ORDER BY` without `TOP` gets `TOP ALL` (compiler spec §7.2);
   - a `UNION … ORDER BY` is wrapped as `SELECT TOP ALL * FROM (union) ORDER BY …`, because IRIS rejects it as a subquery even with `TOP ALL`;
-  - a `WITH` clause is moved to the front of the final statement, because IRIS rejects `WITH` inside a subquery. Combining two different `sql()` queries that both use `WITH` raises `UnsupportedOperationError`.
+  - a `WITH` clause is moved to the front of the final statement, because IRIS rejects `WITH` inside a subquery. Combining `sql()` queries that use `WITH` works only when they are the same query with the same args (for example a self-join); otherwise it raises `UnsupportedOperationError`, because two `WITH` clauses would clash at the front of the statement.
 - A later transformation may still drop the order, as in Spark.
 - Result columns must have distinct names before transformations can follow; IRIS names unaliased expressions `Expression_1`, `Expression_2`, …, so alias them in the SQL.
 - Column types come from the driver's result metadata. A column of a type Mborobak doesn't support (for example `TIME`) raises `UnsupportedTypeError` at the `sql()` call; cast it in the SQL.
