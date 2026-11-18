@@ -99,7 +99,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | CAST-04 | `'+3'`, `'007'` → int | 3, 7 | — | Accepted | Emulated (§7.7) | P-c / diff |
 | CAST-05 | `''` → int | Error | — | `MborobakCastError` | Emulated (§7.7) | P-c / diff |
 | CAST-06 | Full-width digits (`'１'`) → int | Error | `ISNUMERIC` 0, `%PATTERN` 1 | `MborobakCastError` | Same | P-c / diff |
-| CAST-07 | `'NaN'`, `'Infinity'`, `'-Infinity'`, `'inf'` → double | NaN, ±∞ | `ISNUMERIC` is 0 for all four | `MborobakCastError` | Known difference. Fix candidate: extra `WHEN UPPER(TRIM(s)) = 'NAN' THEN ?` branches with NaN/∞ sent as parameters (spec §9.5) | P-d / diff |
+| CAST-07 | `'NaN'`, `'Infinity'`, `'-Infinity'`, `'inf'`, `'+Inf'` (any case, trimmed) → double | NaN, ±∞ | `ISNUMERIC` is 0 for all of them | Extra `WHEN UPPER(TRIM(s)) IN (…)` branches; NaN and ±∞ sent as parameters | Emulated (spec §7.7) | P-d / diff |
 | CAST-08 | 20-digit text → `long` | Error (overflow) | Accepted, no overflow | Passed through | Known difference (spec §7.7) | P-c / diff |
 | CAST-09 | `double` or `decimal` → `int` (`2.7`, `-2.7`, `1.5`, `-0.1`) | Truncates toward zero | Truncates toward zero (2, -2, 1, 0) | Plain `CAST` | Same | P-d / diff |
 | CAST-10 | `double` or `decimal` → `int`/`long` out of range (`1e20`) | Error (ANSI) | `100000000000000000000`, no error | Range check before the `CAST`; `MborobakArithmeticError` | Emulated (spec §7.7) | P-d / diff |
@@ -170,7 +170,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | NAME-04 | Default name of a plain cast and of `when()` | `d` for `col("d").cast("int")`; `CASE WHEN (i > 1) THEN hi END` | — | Same names | Emulated (API contract §6.5; A1 resolved) | — / diff |
 | NAME-05 | Reserved words as names | Allowed | Allowed quoted | Always quoted | Same | S§2.4 / doc |
 | NAME-06 | Unqualified table name | Current database | `SQLUser` | `SQLUser` | Same in effect | S§2.4 |
-| NAME-07 | `filter` on a column an earlier `select` dropped (`df.select("id").filter(col("i") > 1)`) | Allowed: Spark resolves the column from the input | — | `ColumnNotFoundError` | Known difference. Fix candidate: resolve missing columns through the `Project`, as Spark does | diff |
+| NAME-07 | `filter` or `orderBy` on a column an earlier `select` dropped (`df.select("id").filter(col("i") > 1)`) | Allowed: Spark resolves the column from the input | — | Same: the column is added back below the `select`, then projected away again | Emulated (spec §6.1) | diff |
 
 ### 2.10 Results and pandas
 
@@ -234,10 +234,8 @@ For the README and the docs site, the P0 known differences fit in one short list
 - `max` ignores NaN (FP-06).
 - The `DOUBLE` value `-1E19` groups together with NULL (FP-10).
 - `like` has no escape character (STR-14).
-- Text `'NaN'` and `'Infinity'` can't be cast to `double` (CAST-07).
 - Casting `double` and `decimal` values to string gives IRIS's text, not Spark's (CAST-12, CAST-13).
 - `union` is stricter about mixing types (UNI-03).
-- `filter` can't use a column that an earlier `select` dropped (NAME-07).
 - Timestamps have no time zone (TIME-01).
 - `session.sql()` takes IRIS SQL, where `GROUP BY 1` means the constant 1 (API-01, GRP-01).
 - With `stringSemantics="iris"`, string comparison, grouping and sorting follow IRIS's case-insensitive rules (§2.1).
@@ -249,7 +247,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 | M1 | ~~Make PySpark 4.3 runnable~~ Done: PySpark 4.3.0 on OpenJDK 21 (`pip install -e ".[compat]"`, `brew install openjdk@21`) | — |
 | M2 | ~~Probe IRIS `MOD` with negative operands~~ Done (P-d): same as Spark | NUM-08 |
 | M3 | ~~Probe `ISNUMERIC('NaN')`, double → int, casts to text~~ Done (P-d) | CAST-07, CAST-09 to CAST-14 |
-| M7 | Decide between keeping CAST-07, CAST-12 and CAST-13 as known differences or applying their fix candidates (spec change) | CAST-07, CAST-12, CAST-13 |
+| M7 | Decide between keeping CAST-12 and CAST-13 as known differences or applying their fix candidate (CAST-07 is now emulated) | CAST-12, CAST-13 |
 | M4 | ~~Confirm Spark's handling of full-width digits~~ Done: Spark rejects them | CAST-06 |
 | M5 | ~~Confirm generated names for casts and `when()`~~ Done | NAME-03, NAME-04 |
 | M8 | Write differential tests for the rows still marked `doc` | §2 |

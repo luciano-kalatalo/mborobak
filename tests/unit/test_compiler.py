@@ -197,3 +197,45 @@ def test_row_behaves_like_pyspark():
     assert r[0] == 1 and r["b"] == "x" and r.a == 1 and r.asDict() == {"a": 1, "b": "x"}
     assert Row("a", "b")(1, "x") == r
     assert repr(r) == "Row(a=1, b='x')"
+
+
+def test_filter_and_sort_on_a_dropped_column_like_spark(session):
+    sales = session.table("Sales")
+    df = sales.select("id").filter(F.col("status") == "x").orderBy("amount")
+    assert df.columns == ["id"]
+    text, params = df.toSQL()
+    assert text.startswith('SELECT "id"\nFROM "SQLUser"."Sales"\nWHERE %EXACT("status") = ?')
+    assert text.endswith('ORDER BY "amount"')
+    with pytest.raises(ColumnNotFoundError):
+        sales.select("id").filter(F.col("nope") == 1)
+
+
+def test_cast_parameters_follow_text_order(session):
+    import math
+
+    df = session.table("Sales").select(F.col("status").cast("double").alias("d"), F.lit(1).alias("one"))
+    text, params = df.toSQL()
+    assert text.count("?") == len(params) == 4
+    assert math.isnan(params[0]) and params[1:] == [float("inf"), float("-inf"), 1]
+
+
+def test_aliases_never_contain_dots(session):
+    df = session.table("Sales").select(F.lit(1.5).cast("int"))
+    assert df.columns == ["CAST(1.5 AS INT)"]
+    assert 'AS "CAST(1_5 AS INT)"' in df.toSQL()[0]
+
+
+def test_constant_casts_are_folded(session):
+    from mborobak.compiler import fold_cast
+    from mborobak.errors import MborobakArithmeticError, MborobakCastError
+    from mborobak.sql.types import DecimalType, DoubleType, IntegerType, LongType
+
+    text, params = session.table("Sales").select(F.lit(" 7 ").cast("int").alias("x")).toSQL()
+    assert text.startswith('SELECT ? AS "x"') and params == [7]
+    assert fold_cast("-Infinity", DoubleType()) == float("-inf")
+    assert str(fold_cast("1.555", DecimalType(10, 2))) == "1.56"
+    assert fold_cast(-2.9, LongType()) == -2
+    with pytest.raises(MborobakCastError):
+        fold_cast("1.5", IntegerType())
+    with pytest.raises(MborobakArithmeticError):
+        fold_cast(float("nan"), IntegerType())

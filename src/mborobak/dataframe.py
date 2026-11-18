@@ -18,7 +18,7 @@ from .analyzer import (
     resolve,
 )
 from .column import Column, to_column_expr
-from .errors import AnalysisError, UnsupportedOperationError, caller_location
+from .errors import AnalysisError, ColumnNotFoundError, UnsupportedOperationError, caller_location
 from .execution import ExecutionMetrics, convert_rows
 from .row import Row
 from .sql.types import BooleanType, DecimalType, LongType, NullType, StructField, StructType
@@ -112,12 +112,44 @@ class DataFrame:
                                             operation=op)
         if not isinstance(condition, Column):
             raise TypeError("filter() takes a Column condition")
-        resolved = resolve(condition._expr, self._plan, op)
+        base, (resolved,), restore = self._resolve_with_missing([condition._expr], op)
         check_no_aggregate(resolved, op, "filter(); filter after agg() instead")
         dtype, _ = infer(resolved, op)
         if not isinstance(dtype, (BooleanType, NullType)):
             raise AnalysisError(f"filter() condition must be boolean, got {dtype.simpleString()}", operation=op)
-        return self._with(P.Filter(self._plan, resolved))
+        return self._with(_restore(P.Filter(base, resolved), restore))
+
+    def _resolve_with_missing(self, exprs: list[E.Expr], op: str):
+        """Resolve ``exprs``; a column dropped by an earlier select() is brought back, as Spark does.
+
+        Spark's analyzer resolves ``df.select("id").filter(col("i") > 1)`` by adding ``i`` to the
+        projection, filtering, and projecting the original columns again (matrix NAME-07). Returns
+        (plan to build on, resolved expressions, original output to restore or None).
+        """
+        try:
+            return self._plan, [resolve(e, self._plan, op) for e in exprs], None
+        except ColumnNotFoundError as first:
+            chain: list[P.Plan] = []
+            node = self._plan
+            while isinstance(node, (P.Filter, P.Sort, P.Limit)):  # these keep the rows' columns
+                chain.append(node)
+                node = node.child
+            if not isinstance(node, P.Project):
+                raise first
+            names = {a.name.lower() for a in node.output}
+            ids = {a.id for a in node.output}
+            extra = tuple((a, E.AttrRef(a)) for a in node.child.output
+                          if a.id not in ids and a.name.lower() not in names)
+            if not extra:
+                raise first
+            widened: P.Plan = P.Project(node.child, node.items + extra)
+            for wrapper in reversed(chain):
+                widened = _rebuild(wrapper, widened)
+            try:
+                resolved = [resolve(e, widened, op) for e in exprs]
+            except ColumnNotFoundError:
+                raise first from None
+            return widened, resolved, self._plan.output
 
     where = filter
 
@@ -190,10 +222,11 @@ class DataFrame:
             expr = to_column_expr(c)
             if not isinstance(expr, E.SortOrder):
                 expr = E.SortOrder(expr, bool(asc), None)
-            resolved = resolve(expr, self._plan, op)
-            check_no_aggregate(resolved, op, "orderBy()")
-            orders.append(resolved)
-        return self._with(P.Sort(self._plan, tuple(orders)))
+            orders.append(expr)
+        base, resolved, restore = self._resolve_with_missing(orders, op)
+        for r in resolved:
+            check_no_aggregate(r, op, "orderBy()")
+        return self._with(_restore(P.Sort(base, tuple(resolved)), restore))
 
     sort = orderBy
 
@@ -494,6 +527,24 @@ class GroupedData:
 
     def max(self, *cols: str) -> DataFrame:  # noqa: A003
         return self._simple("max", cols)
+
+
+def _rebuild(node: P.Plan, child: P.Plan) -> P.Plan:
+    """The same Filter/Sort/Limit node over a different child."""
+    if isinstance(node, P.Filter):
+        return P.Filter(child, node.condition)
+    if isinstance(node, P.Sort):
+        return P.Sort(child, node.orders)
+    if isinstance(node, P.Limit):
+        return P.Limit(child, node.n)
+    raise TypeError(type(node).__name__)
+
+
+def _restore(plan: P.Plan, output) -> P.Plan:
+    """Project back to ``output`` after columns were added for resolution."""
+    if output is None:
+        return plan
+    return P.Project(plan, tuple((a, E.AttrRef(a)) for a in output))
 
 
 def _distinct_ids(left: P.Plan, right: P.Plan) -> P.Plan:

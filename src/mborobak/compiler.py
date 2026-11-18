@@ -8,7 +8,10 @@ derived table (§9.1–9.2). Expressions are kept as trees until the very end;
 
 from __future__ import annotations
 
+import decimal
 import hashlib
+import math
+import re
 from dataclasses import dataclass, field
 
 from . import expressions as E
@@ -228,10 +231,11 @@ class Compiler:
         for a in attrs:
             if a.id in out:
                 continue
-            name, n = a.name, 1
+            base = sql_alias(a.name)
+            name, n = base, 1
             while name.lower() in seen:
                 n += 1
-                name = f"{a.name}_{n}"
+                name = f"{base}_{n}"
             seen.add(name.lower())
             out[a.id] = name
         return out
@@ -440,11 +444,72 @@ class Compiler:
         return SqlStatement(text, renderer.params, schema, list(self.translations), fingerprint)
 
 
+# --------------------------------------------------------------------------- constant casts
+
+_INT_TEXT = re.compile(r"^[+-]?[0-9]+$")
+_NUM_TEXT = re.compile(r"^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$")
+_SPECIAL = {"nan": math.nan, "inf": math.inf, "+inf": math.inf, "infinity": math.inf, "+infinity": math.inf,
+            "-inf": -math.inf, "-infinity": -math.inf}
+_RANGES = {IntegerType: (-(2**31), 2**31 - 1), LongType: (-(2**63), 2**63 - 1)}
+
+
+def fold_cast(value, to: DataType):
+    """Spark's (ANSI) cast of one constant; raises MborobakCastError/MborobakArithmeticError."""
+    from .errors import MborobakArithmeticError, MborobakCastError
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if isinstance(to, DoubleType):
+            if text.lower() in _SPECIAL:
+                return _SPECIAL[text.lower()]
+            if _NUM_TEXT.match(text):
+                return float(text)
+        elif to.is_integral and _INT_TEXT.match(text):
+            number = int(text)
+            low, high = _RANGES[type(to)]
+            if not low <= number <= high:
+                raise MborobakCastError(f"invalid input for cast: {value!r} is out of range for "
+                                        f"{to.simpleString()}")
+            return number
+        elif isinstance(to, DecimalType) and _NUM_TEXT.match(text):
+            value = decimal.Decimal(text)
+        else:
+            raise MborobakCastError(f"invalid input for cast: {value!r} is not a valid {to.simpleString()}")
+        if not isinstance(to, DecimalType):
+            raise MborobakCastError(f"invalid input for cast: {value!r} is not a valid {to.simpleString()}")
+    if isinstance(to, DecimalType):
+        quantized = decimal.Decimal(value).quantize(decimal.Decimal(1).scaleb(-to.scale),
+                                                    rounding=decimal.ROUND_HALF_UP)
+        if len(quantized.as_tuple().digits) - to.scale > to.precision - to.scale and quantized != 0:
+            raise MborobakArithmeticError(f"numeric overflow: {value!r} doesn't fit {to.simpleString()}")
+        return quantized
+    # double or decimal → integral: truncate toward zero, fail on NaN, infinity and overflow
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        raise MborobakArithmeticError(f"numeric overflow: {value!r} can't be cast to {to.simpleString()}")
+    number = int(value)
+    low, high = _RANGES[type(to)]
+    if not low <= number <= high:
+        raise MborobakArithmeticError(f"numeric overflow: {value!r} doesn't fit {to.simpleString()}")
+    return number
+
+
 # --------------------------------------------------------------------------- rendering
 
 
 def quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
+
+
+def sql_alias(name: str) -> str:
+    """IRIS rejects '.', ',' and '^' in a delimited identifier (probed on 2026.2), which unaliased names
+    such as "CAST(1.5 AS DECIMAL(10,2))" contain. Result columns are named from the DataFrame schema,
+    not from the cursor, so the SQL alias may differ."""
+    return name.translate(_ALIAS_FIX)
+
+
+_ALIAS_FIX = str.maketrans({".": "_", ",": ";", "^": "~"})
 
 
 def sql_type(t: DataType) -> str:
@@ -488,7 +553,7 @@ class Renderer:
                 expr = E.Exact(expr)
             if a.id in b.casts:
                 expr = E.Cast(expr, b.casts[a.id])
-            name = a.name if top_level else b.out_names.get(a.id, a.name)
+            name = sql_alias(a.name) if top_level else b.out_names.get(a.id, sql_alias(a.name))
             text = self.value(expr)
             plain = isinstance(expr, E.SqlCol) and expr.name == name
             items.append(text if plain else f"{text} AS {quote(name)}")
@@ -645,16 +710,31 @@ class Renderer:
             return f"CAST(NULL AS {sql_type(to)})"
         if src == to:
             return self.value(e.child)
+        if isinstance(e.child, E.Literal) and (isinstance(src, StringType) and to.is_numeric or
+                                               isinstance(src, (DoubleType, DecimalType)) and to.is_integral):
+            # A constant has no row to make the error trigger depend on, so the guarded forms below don't
+            # apply (§7.5). Cast it here with Spark's rules; invalid input fails when the action runs.
+            return self.lit(E.Literal(fold_cast(e.child.value, to), to))
         if isinstance(src, StringType) and to.is_numeric:
             # §7.7: validity check. $LISTGET at position -5 raises <RANGE>, only when reached (it
             # depends on the row). <ILLEGAL VALUE> is not used: IRIS raises it for DOUBLE / 0 too.
-            s = lambda: self.value(e.child)  # noqa: E731 - each use renders its own parameters
-            check = f"ISNUMERIC(TRIM({s()})) = 1"
+            # Each s() renders the operand again, so build the text strictly left to right: its
+            # parameters must be appended in the order they appear.
+            s = lambda: self.value(e.child)  # noqa: E731
+            text = f"CASE WHEN {s()} IS NULL THEN NULL"
+            if isinstance(to, DoubleType):
+                # CAST-07: Spark reads NaN and infinity text; ISNUMERIC rejects it. The values are sent as
+                # parameters, since IRIS has no NaN or infinity literals (§9.5).
+                for words, value in (("'NAN'", math.nan), ("'INF', '+INF', 'INFINITY', '+INFINITY'", math.inf),
+                                     ("'-INF', '-INFINITY'", -math.inf)):
+                    text += f" WHEN UPPER(TRIM({s()})) IN ({words}) THEN "
+                    text += self.lit(E.Literal(value, DoubleType()))
+            text += f" WHEN ISNUMERIC(TRIM({s()})) = 1"
             if to.is_integral:
-                check += f" AND TRIM({s()}) %PATTERN '{INTEGER_PATTERN}'"
-            return (f"CASE WHEN {s()} IS NULL THEN NULL WHEN {check} "
-                    f"THEN CAST(TRIM({s()}) AS {sql_type(to)}) "
-                    f"ELSE $LISTGET({s()}, LENGTH({s()}) - LENGTH({s()}) - 5) END")
+                text += f" AND TRIM({s()}) %PATTERN '{INTEGER_PATTERN}'"
+            text += f" THEN CAST(TRIM({s()}) AS {sql_type(to)})"
+            text += f" ELSE $LISTGET({s()}, LENGTH({s()}) - LENGTH({s()}) - 5) END"
+            return text
         if isinstance(src, (DoubleType, DecimalType)) and to.is_integral:
             # §7.7: IRIS turns NaN into 0, returns ±Infinity as text and ignores range overflow; Spark
             # (ANSI) fails. Out-of-range values (NaN included, via x <> x) reach EXP(100000), which

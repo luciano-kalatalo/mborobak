@@ -1,6 +1,6 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.3 · 2026-11-18
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.4 · 2026-11-18
 
 Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
@@ -123,6 +123,7 @@ All expression nodes are immutable dataclasses. Every expression knows its child
 - `col("x")` resolves against the child's output columns. Exactly one match is required: zero raises `ColumnNotFoundError` (with close-match suggestions); more than one raises `AmbiguousColumnError`.
 - `df["x"]` carries `df`'s plan id and resolves to that plan's column `x`, even after joins. This is what makes `a.join(b, a["id"] == b["id"])` unambiguous.
 - `df.alias("a")` qualifies columns, so `col("a.id")` resolves through the `SubqueryAlias`. Self-joins require an alias or `df[...]` references.
+- **Columns dropped by an earlier `select`.** As in Spark, `filter` and `orderBy` may refer to a column that the `select` directly below them (possibly under other filters, sorts and limits) dropped: the analyzer adds the column back to that projection, applies the filter or sort, and projects the original columns again (matrix NAME-07). A name found nowhere still raises `ColumnNotFoundError`.
 
 ### 6.2 Checks
 
@@ -234,7 +235,9 @@ IRIS doesn't overflow `INTEGER` arithmetic (study §2.6). In P0 this is a **docu
 | Cast | Rendering |
 |------|-----------|
 | string → integer, long | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1"-",1"+")1.N' THEN CAST(TRIM(s) AS INTEGER) ELSE $LISTGET(s, LENGTH(s) - LENGTH(s) - 5) END` |
-| string → double, decimal | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 THEN CAST(TRIM(s) AS DOUBLE) ELSE $LISTGET(s, LENGTH(s) - LENGTH(s) - 5) END` |
+| string → double | As for decimal, plus `WHEN UPPER(TRIM(s)) IN ('NAN') THEN ?`, `… IN ('INF', '+INF', 'INFINITY', '+INFINITY') THEN ?` and `… IN ('-INF', '-INFINITY') THEN ?` before the `ISNUMERIC` test, with NaN, +∞ and −∞ as parameters (CAST-07) |
+| string → decimal | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 THEN CAST(TRIM(s) AS NUMERIC(p,s)) ELSE $LISTGET(s, LENGTH(s) - LENGTH(s) - 5) END` |
+| any guarded cast of a constant (`lit("7").cast("int")`) | Folded in Python with Spark's rules and sent as one parameter; invalid input raises the same Mborobak error when the action runs. A constant has no row value for the trigger to depend on (§7.5) |
 | double, decimal → integer, long | `CASE WHEN x IS NULL THEN NULL WHEN x <> x OR x >= 2147483648 OR x <= -2147483649 THEN EXP(100000 + LENGTH(CAST(x AS VARCHAR(60))) - LENGTH(CAST(x AS VARCHAR(60)))) ELSE CAST(x AS INTEGER) END` (bounds ±2⁶³ for `long`) |
 | numeric → string, other numeric → numeric, date/timestamp ↔ string | Plain `CAST` |
 
@@ -334,7 +337,8 @@ Each plan node either **merges** into the current block or **wraps** it: the cur
 - Every identifier is double-quoted (`"SQLUser"."Sales"`, `"customer_id"`). Quoted identifiers are case-insensitive in IRIS and safe for reserved words (study §2.4, **probe 2026-11-18b**).
 - Unqualified table names resolve to schema `SQLUser` (study §2.4).
 - Derived tables are named `t0`, `t1`, … in the order they are created during the bottom-up walk, which keeps the text deterministic.
-- When two output columns would share a name inside a derived table (after a join), the generator gives the inner one an internal alias `c<column_id>`; the outermost `SELECT` restores the user's names.
+- When two output columns would share a name inside a derived table (after a join), the generator gives the later one a suffix (`id_2`); the outermost `SELECT` restores the user's names.
+- IRIS rejects `.`, `,` and `^` inside a delimited identifier (probed on 2026.2). Unaliased names can contain them (`CAST(1.5 AS DECIMAL(10,2))`), so SQL aliases replace them with `_`, `;` and `~`. Result columns are named from the DataFrame's schema, never from the cursor, so users see the original names.
 - `ORDER BY` may use output aliases (verified **probe 2026-11-18b**).
 
 ### 9.4 Grouping

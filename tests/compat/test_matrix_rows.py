@@ -199,10 +199,16 @@ def test_CAST_01_valid_double_text(pair):
                            .select("id", F.col("s").cast("double"))))
 
 
-@known_difference("CAST-07")
 def test_CAST_07_nan_and_infinity_text(pair):
-    assert_same(*pair.both("texts", lambda F, df: df.filter(F.col("id").isin(13, 14))
+    assert_same(*pair.both("texts", lambda F, df: df.filter(F.col("id").isin(13, 14, 20, 21, 22, 23))
                            .select("id", F.col("s").cast("double"))))
+
+
+def test_CAST_07_constant_casts(pair):
+    assert_same(*pair.both("texts", lambda F, df: df.filter(F.col("id") == 1).select(
+        F.lit(" 7 ").cast("int"), F.lit("NaN").cast("double"), F.lit("-Infinity").cast("double"),
+        F.lit("1.555").cast("decimal(10,2)"), F.lit(-2.9).cast("int"))))
+    assert_both_fail(*pair.both("texts", lambda F, df: df.select(F.lit("1.5").cast("int"))), MborobakCastError)
 
 
 @known_difference("CAST-08")
@@ -379,9 +385,11 @@ def test_TIME_03_04_dates_and_microseconds(pair):
 # --------------------------------------------------------------------------- 2.9 names
 
 
-@known_difference("NAME-07")
-def test_NAME_07_filter_on_a_column_dropped_by_select(pair):
+def test_NAME_07_filter_and_sort_on_a_column_dropped_by_select(pair):
     assert_same(*pair.both("nums", lambda F, df: df.select("id").filter(F.col("i") > 1)))
+    assert_same(*pair.both("nums", lambda F, df: df.select("id").orderBy(F.col("n").desc(), "id")), ordered=True)
+    assert_same(*pair.both("nums", lambda F, df: df.select(F.col("i").alias("x"), "id")
+                           .filter((F.col("x") > 0) & (F.col("l") > 0))))
 
 
 def test_NAME_01_case_insensitive_names(pair):
