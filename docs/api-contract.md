@@ -307,7 +307,7 @@ An expression without `alias()` gets the name PySpark would give it, so `df.colu
 | `F.count("*")` | `count(1)` |
 | `F.countDistinct("name")` | `count(DISTINCT name)` |
 | `F.col("a") + F.col("b")` | `(a + b)` |
-| `F.col("x").cast("int")` | `x` for a plain cast of a column (to be confirmed, A1) |
+| `F.col("x").cast("int")` | `x` for a plain cast of a column |
 | `F.lit(1)` | `1` |
 | `F.when(F.col("x") > 1, "hi")` | `CASE WHEN (x > 1) THEN hi END` |
 
@@ -406,6 +406,6 @@ They behave like PySpark's: equality by value, `simpleString()` (the names in §
 
 | # | Question | Needed for |
 |---|----------|------------|
-| A1 | Default output name of a cast and of `when()` results: confirm the exact PySpark 4.3 strings (§6.5) | Compatibility matrix |
+| A1 | ~~Default output name of a cast and of `when()`~~ **Resolved** by the differential run: as in §6.5 (matrix NAME-04) | — |
 | A2 | `toPandas()` with Arrow on is the default in some Spark 4 deployments; whether to offer an option matching it | §5.3 |
 | A3 | Whether `getOrCreate()` should warn when settings differ from the active session's instead of opening a new one silently | §3.1 |

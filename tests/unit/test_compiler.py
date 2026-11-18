@@ -104,7 +104,7 @@ def test_modulo_uses_mod(session):
 
 def test_string_to_int_cast_has_guard(session):
     text, _ = sql(session.table("Sales").select(F.col("status").cast("int")))
-    assert "%PATTERN" in text and 'LOG(LENGTH("status") - LENGTH("status"))' in text
+    assert "%PATTERN" in text and '$LISTGET("status", LENGTH("status") - LENGTH("status") - 5)' in text
 
 
 def test_boolean_in_select_is_case(session):

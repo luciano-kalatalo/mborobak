@@ -65,7 +65,10 @@ def map_error(exc: Exception, sql: str, operation: str | None, candidates: list[
     hint = f" (possible causes: {', '.join(candidates)})" if candidates else ""
     if iris_code == "<DIVIDE>":
         return MborobakArithmeticError("division by zero" + hint, operation=operation, **details)
-    if iris_code == "<ILLEGAL VALUE>":
+    if iris_code == "<ILLEGAL VALUE>":  # DOUBLE division by zero (and LOG/SQRT domain errors)
+        return MborobakArithmeticError("division by zero or invalid arithmetic" + hint, operation=operation,
+                                       **details)
+    if iris_code == "<RANGE>":  # the cast guard's trigger (compiler spec §7.7)
         return MborobakCastError("invalid input for cast" + hint, operation=operation, **details)
     if iris_code == "<MAXNUMBER>":
         return MborobakArithmeticError("numeric overflow" + hint, operation=operation, **details)
@@ -76,8 +79,16 @@ def map_error(exc: Exception, sql: str, operation: str | None, candidates: list[
 # --------------------------------------------------------------------------- value conversion
 
 
+class ConversionError(ValueError):
+    """A value IRIS returned can't be represented in the column's type."""
+
+
 def _to_int(v):
-    return int(v)
+    try:
+        return int(v)
+    except (ValueError, OverflowError):
+        # IRIS returns 'inf'/'nan' text for CAST(±Infinity or NaN AS INTEGER); Spark (ANSI) fails.
+        raise ConversionError(f"IRIS returned {v!r} for an integer column (numeric overflow)") from None
 
 
 def _to_float(v):
@@ -195,6 +206,9 @@ class Executor:
                 self.counter.data_queries += 1
                 t1 = time.perf_counter()
                 rows = cur.fetchall()
+            except ValueError as exc:  # the driver could not read a value (for example 'inf' as an int)
+                raise MborobakArithmeticError(f"IRIS returned a value that doesn't fit its column type: {exc}",
+                                              operation=operation, sql=sql) from exc
             except Exception as exc:  # noqa: BLE001 - mapped to Mborobak errors
                 raise map_error(exc, sql, operation, candidates) from exc
             t2 = time.perf_counter()

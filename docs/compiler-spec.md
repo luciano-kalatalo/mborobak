@@ -1,8 +1,8 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.2 · 2026-11-18
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.3 · 2026-11-18
 
-Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c.
+Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
 ## 1. Purpose and boundaries
 
@@ -216,13 +216,14 @@ The -400 driver message carries the ObjectScript error in its `%msg` part, for e
 | `%msg` code | Mborobak error | Possible causes in the plan |
 |-------------|----------------|-----------------------------|
 | `<DIVIDE>` | `MborobakArithmeticError` ("division by zero") | any `/` or `%` |
-| `<ILLEGAL VALUE>` | `MborobakCastError` ("invalid input for cast") | a `CastGuard` (§7.7) |
+| `<ILLEGAL VALUE>` | `MborobakArithmeticError` ("division by zero or invalid arithmetic") | `DOUBLE` division by zero (differential run, NUM-07) |
+| `<RANGE>` | `MborobakCastError` ("invalid input for cast") | a `CastGuard` (§7.7) |
 | `<MAXNUMBER>` | `MborobakArithmeticError` ("numeric overflow") | numeric arithmetic or cast |
 | other | `MborobakExecutionError` with the IRIS text attached | — |
 
 The message lists the candidate expressions of that kind from the plan (for example, the two divisions in the `select`). Narrowing it down to one expression would need extra queries and is not done in P0.
 
-**Error triggers must depend on a row value.** IRIS evaluates constant subexpressions before reading rows: `CASE WHEN v = 99 THEN 1/0 ELSE v END` fails even when no row has `v = 99`, and so do `1/?`, `LOG(0)` and `SQRT(-1)` **(probe 2026-11-18c)**. A trigger such as `LOG(LENGTH(s) - LENGTH(s))` only fails when its branch is taken. The same eager evaluation affects user expressions: a constant division by zero anywhere in a statement fails the statement, as Spark's constant folding does too.
+**Error triggers must depend on a row value.** IRIS evaluates constant subexpressions before reading rows: `CASE WHEN v = 99 THEN 1/0 ELSE v END` fails even when no row has `v = 99`, and so do `1/?`, `LOG(0)` and `SQRT(-1)` **(probe 2026-11-18c)**. A trigger such as `$LISTGET(s, LENGTH(s) - LENGTH(s) - 5)` only fails when its branch is taken. The same eager evaluation affects user expressions: a constant division by zero anywhere in a statement fails the statement, as Spark's constant folding does too.
 
 ### 7.6 Integer overflow
 
@@ -232,13 +233,15 @@ IRIS doesn't overflow `INTEGER` arithmetic (study §2.6). In P0 this is a **docu
 
 | Cast | Rendering |
 |------|-----------|
-| string → integer, long | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1"-",1"+")1.N' THEN CAST(TRIM(s) AS INTEGER) ELSE LOG(LENGTH(s) - LENGTH(s)) END` |
-| string → double, decimal | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 THEN CAST(TRIM(s) AS DOUBLE) ELSE LOG(LENGTH(s) - LENGTH(s)) END` |
-| numeric → string, numeric → numeric, date/timestamp ↔ string | Plain `CAST` |
+| string → integer, long | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1"-",1"+")1.N' THEN CAST(TRIM(s) AS INTEGER) ELSE $LISTGET(s, LENGTH(s) - LENGTH(s) - 5) END` |
+| string → double, decimal | `CASE WHEN s IS NULL THEN NULL WHEN ISNUMERIC(TRIM(s)) = 1 THEN CAST(TRIM(s) AS DOUBLE) ELSE $LISTGET(s, LENGTH(s) - LENGTH(s) - 5) END` |
+| double, decimal → integer, long | `CASE WHEN x IS NULL THEN NULL WHEN x <> x OR x >= 2147483648 OR x <= -2147483649 THEN EXP(100000 + LENGTH(CAST(x AS VARCHAR(60))) - LENGTH(CAST(x AS VARCHAR(60)))) ELSE CAST(x AS INTEGER) END` (bounds ±2⁶³ for `long`) |
+| numeric → string, other numeric → numeric, date/timestamp ↔ string | Plain `CAST` |
 
 Why each part is there:
 
-- **NULL first.** NULL input gives NULL, and the `ELSE` branch is only reached with a non-NULL `s`, so `LENGTH(s) - LENGTH(s)` is 0 there and `LOG(0)` raises `<ILLEGAL VALUE>` (§7.5).
+- **NULL first.** NULL input gives NULL, and the `ELSE` branch is only reached with a non-NULL `s`, so `LENGTH(s) - LENGTH(s) - 5` is −5 there and `$LISTGET` at position −5 raises `<RANGE>` (§7.5). Draft 0.2 used `LOG(0)`, whose `<ILLEGAL VALUE>` turned out to be ambiguous: IRIS raises the same code for `DOUBLE` division by zero.
+- **Range check for double/decimal → integer.** IRIS turns NaN into 0 without an error, returns ±∞ as text (`'inf'`) that the driver can't read, and ignores overflow (`1e20` → `100000000000000000000`); Spark fails in all three cases (CAST-10, CAST-15). `x <> x` catches NaN (inside a `CASE`, §7.9), the bounds catch ±∞ and overflow, and `EXP(100000)` raises `<MAXNUMBER>` ("numeric overflow"). The bounds keep Spark's truncation: `2147483647.9` still casts to `2147483647`.
 - **`ISNUMERIC(TRIM(s))`.** Spark trims before casting; `ISNUMERIC(' 1')` is 0 without the trim. It rejects `''`, `'abc'`, `'1-'`, `'0x1F'` and full-width digits such as `'１'` **(probe 2026-11-18c)**.
 - **The integer pattern** rejects what `ISNUMERIC` accepts but an integer cast must not: `'1.5'`, `'1e3'`, `'1.'`, `'.5'`. It accepts an optional sign and leading zeros (`'+3'` → 3, `'007'` → 7). `%PATTERN` alone would accept `'１'`, so both tests are needed. The pattern is emitted as SQL text, not a parameter: it is fixed compiler text, never user input (§9.5).
 
@@ -441,7 +444,7 @@ SELECT CAST("id" AS DOUBLE) / "customer_id" AS "ratio",
        CASE WHEN "status" IS NULL THEN NULL
             WHEN ISNUMERIC(TRIM("status")) = 1
              AND TRIM("status") %PATTERN '0.1(1"-",1"+")1.N' THEN CAST(TRIM("status") AS INTEGER)
-            ELSE LOG(LENGTH("status") - LENGTH("status")) END AS "s"
+            ELSE $LISTGET("status", LENGTH("status") - LENGTH("status") - 5) END AS "s"
 FROM "SQLUser"."Sales"
 ```
 
@@ -496,7 +499,7 @@ Script [`probes/compiler_followup_probe.py`](../probes/compiler_followup_probe.p
 | # | Question | Needed for |
 |---|----------|------------|
 | O1 | ~~Where to read a column's collation~~ **Resolved:** `%Dictionary.CompiledProperty.Parameters` (§6.4) | — |
-| O2 | ~~A stable error trigger, and how to tell which guard fired~~ **Resolved:** row-dependent `LOG(LENGTH(s) - LENGTH(s))` for casts, no guard for division, attribution by `%msg` code (§7.5) | — |
+| O2 | ~~A stable error trigger, and how to tell which guard fired~~ **Resolved:** row-dependent `$LISTGET(s, LENGTH(s) - LENGTH(s) - 5)` for casts (draft 0.3), no guard for division, attribution by `%msg` code (§7.5) | — |
 | O3 | ~~The exact integer pattern~~ **Resolved:** `ISNUMERIC(TRIM(s)) = 1 AND TRIM(s) %PATTERN '0.1(1"-",1"+")1.N'` (§7.7) | — |
 | O4 | Cost of `%EXACT` at 1M rows (index loss) | Benchmark, D10 |
 | O5 | ~~How `-0.0` and NaN group, compare and sort~~ **Resolved** (§12.2); `MAX` ignoring NaN goes to the compatibility matrix | — |

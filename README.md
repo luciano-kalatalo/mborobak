@@ -47,6 +47,18 @@ result.show()      # runs one query in IRIS
 .venv/bin/pytest tests/integration          # needs IRIS_HOST, IRIS_PORT, IRIS_NAMESPACE, IRIS_USERNAME, IRIS_PASSWORD
 ```
 
+### PySpark comparison
+
+`tests/compat` runs the same DataFrame code on Mborobak and on PySpark 4.3 (ANSI on) and compares names, types and rows, one test per row of the [compatibility matrix](docs/compatibility-matrix.md). It needs IRIS (as above), PySpark and Java 17+:
+
+```bash
+brew install openjdk@21
+.venv/bin/pip install -e ".[compat]"
+.venv/bin/pytest tests/compat
+```
+
+The tests find Homebrew's `openjdk@21` on their own; set `JAVA_HOME` to use another JDK.
+
 ## License
 
 MIT

@@ -14,10 +14,14 @@ dependencies = ["intersystems-irispython>=5.4"]
 [project.optional-dependencies]
 pandas = ["pandas>=2.0"]
 dev = ["pytest>=8", "pandas>=2.0"]
+compat = ["pyspark==4.3.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mborobak"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["iris: needs a running IRIS instance (IRIS_HOST and friends)"]
+markers = [
+    "iris: needs a running IRIS instance (IRIS_HOST and friends)",
+    "compat: differential tests against PySpark 4.3 (needs IRIS, PySpark and Java)",
+]

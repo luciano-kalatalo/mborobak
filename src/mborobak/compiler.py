@@ -646,14 +646,26 @@ class Renderer:
         if src == to:
             return self.value(e.child)
         if isinstance(src, StringType) and to.is_numeric:
-            # §7.7: validity check; LOG(0) on a row value raises <ILLEGAL VALUE> only when reached.
+            # §7.7: validity check. $LISTGET at position -5 raises <RANGE>, only when reached (it
+            # depends on the row). <ILLEGAL VALUE> is not used: IRIS raises it for DOUBLE / 0 too.
             s = lambda: self.value(e.child)  # noqa: E731 - each use renders its own parameters
             check = f"ISNUMERIC(TRIM({s()})) = 1"
             if to.is_integral:
                 check += f" AND TRIM({s()}) %PATTERN '{INTEGER_PATTERN}'"
             return (f"CASE WHEN {s()} IS NULL THEN NULL WHEN {check} "
                     f"THEN CAST(TRIM({s()}) AS {sql_type(to)}) "
-                    f"ELSE LOG(LENGTH({s()}) - LENGTH({s()})) END")
+                    f"ELSE $LISTGET({s()}, LENGTH({s()}) - LENGTH({s()}) - 5) END")
+        if isinstance(src, (DoubleType, DecimalType)) and to.is_integral:
+            # §7.7: IRIS turns NaN into 0, returns ±Infinity as text and ignores range overflow; Spark
+            # (ANSI) fails. Out-of-range values (NaN included, via x <> x) reach EXP(100000), which
+            # raises <MAXNUMBER> ("numeric overflow"), only when reached.
+            low, high = ("-2147483649", "2147483648") if isinstance(to, IntegerType) else \
+                ("-9223372036854775809", "9223372036854775808")
+            x = lambda: self.value(e.child)  # noqa: E731
+            return (f"CASE WHEN {x()} IS NULL THEN NULL "
+                    f"WHEN {x()} <> {x()} OR {x()} >= {high} OR {x()} <= {low} "
+                    f"THEN EXP(100000 + LENGTH(CAST({x()} AS VARCHAR(60))) - LENGTH(CAST({x()} AS VARCHAR(60)))) "
+                    f"ELSE CAST({x()} AS {sql_type(to)}) END")
         if src.is_numeric and isinstance(to, BooleanType):
             v1, v2 = self.value(e.child), self.value(e.child)
             return f"CASE WHEN {v1} IS NULL THEN NULL WHEN {v2} = 0 THEN 0 ELSE 1 END"

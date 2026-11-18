@@ -384,9 +384,10 @@ class DataFrame:
     def show(self, n: int = 20, truncate: bool | int = True, vertical: bool = False) -> None:
         names, rows = self._run(P.Limit(self._plan, n + 1), "show", _op("show"))
         width = self._session.conf.get("mborobak.show.truncate") if truncate is True else int(truncate or 0)
-        print(format_table(list(names), rows[:n], int(width), vertical), end="")
+        text = format_table(list(names), rows[:n], int(width), vertical)
         if len(rows) > n:
-            print(f"only showing top {n} row{'s' if n != 1 else ''}")
+            text += f"only showing top {n} row{'s' if n != 1 else ''}"
+        print(text)  # same trailing newlines as PySpark
 
     def toPandas(self):  # noqa: N802
         try:

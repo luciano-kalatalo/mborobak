@@ -16,7 +16,7 @@ from .errors import (
     UnsupportedOperationError,
     caller_location,
 )
-from .execution import ExecutionMetrics, Executor, QueryCounter, convert_rows
+from .execution import ConversionError, ExecutionMetrics, Executor, QueryCounter, convert_rows
 
 __all__ = ["MborobakSession"]
 
@@ -285,7 +285,12 @@ class MborobakSession:
         candidates = _error_candidates(plan)
         rows, server_ms, fetch_ms = self._executor.run(stmt.text, stmt.params, operation, candidates)
         t2 = time.perf_counter()
-        converted = convert_rows(rows, stmt.schema)
+        try:
+            converted = convert_rows(rows, stmt.schema)
+        except ConversionError as exc:
+            from .errors import MborobakArithmeticError
+
+            raise MborobakArithmeticError(str(exc), operation=operation, sql=stmt.text) from None
         fetch_ms += (time.perf_counter() - t2) * 1000
         self.lastExecution = ExecutionMetrics(
             action=action, sql=stmt.text, params=list(stmt.params), data_queries=1,
