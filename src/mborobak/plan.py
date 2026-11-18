@@ -125,6 +125,62 @@ class Distinct(Plan):
 
 
 @dataclass(frozen=True, eq=False)
+class SubqueryAlias(Plan):
+    """``df.alias("a")``: same columns, reachable as ``col("a.x")``."""
+
+    child: Plan
+    alias: str
+
+    @property
+    def output(self):
+        return self.child.output
+
+    def children(self):
+        return (self.child,)
+
+
+JOIN_TYPES = ("inner", "left", "right", "full", "cross")
+
+
+@dataclass(frozen=True, eq=False)
+class Join(Plan):
+    left: Plan
+    right: Plan
+    join_type: str  # one of JOIN_TYPES
+    condition: E.Expr | None
+
+    @property
+    def output(self):
+        left_nullable = self.join_type in ("right", "full")
+        right_nullable = self.join_type in ("left", "full")
+
+        def adjust(attrs, nullable):
+            if not nullable:
+                return tuple(attrs)
+            return tuple(E.Attribute(a.id, a.name, a.dtype, True, a.collation) for a in attrs)
+
+        return adjust(self.left.output, left_nullable) + adjust(self.right.output, right_nullable)
+
+    def children(self):
+        return (self.left, self.right)
+
+
+@dataclass(frozen=True, eq=False)
+class Union(Plan):
+    """``UNION ALL`` by position (D4). Output: the first child's attributes, types widened."""
+
+    inputs: tuple[Plan, ...]
+    attrs: tuple[E.Attribute, ...]
+
+    @property
+    def output(self):
+        return self.attrs
+
+    def children(self):
+        return self.inputs
+
+
+@dataclass(frozen=True, eq=False)
 class CountRows(Plan):
     """Internal: ``df.count()`` wraps the plan in this node."""
 
@@ -161,6 +217,13 @@ def plan_key(plan: Plan) -> tuple:
         return ("distinct", plan_key(plan.child))
     if isinstance(plan, CountRows):
         return ("count", plan_key(plan.child))  # the output attribute is new on every call
+    if isinstance(plan, SubqueryAlias):
+        return ("alias", plan_key(plan.child), plan.alias)
+    if isinstance(plan, Join):
+        return ("join", plan_key(plan.left), plan_key(plan.right), plan.join_type, plan.condition)
+    if isinstance(plan, Union):
+        return ("union", tuple(plan_key(c) for c in plan.inputs),
+                tuple((a.id, a.name, a.dtype) for a in plan.attrs))
     raise TypeError(f"no cache key for {type(plan).__name__}")
 
 
@@ -209,6 +272,13 @@ def describe(plan: Plan) -> str:
         return "Distinct"
     if isinstance(plan, CountRows):
         return "Count"
+    if isinstance(plan, SubqueryAlias):
+        return f"SubqueryAlias {plan.alias}"
+    if isinstance(plan, Join):
+        cond = f" {_e(plan.condition)}" if plan.condition is not None else ""
+        return f"Join {plan.join_type}{cond}"
+    if isinstance(plan, Union):
+        return "Union"
     return type(plan).__name__
 
 

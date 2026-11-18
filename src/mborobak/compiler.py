@@ -53,9 +53,28 @@ class SqlStatement:
 
 
 @dataclass
-class Block:
+class FromItem:
     source: object  # TableRef or Block
+    alias: str
+
+
+@dataclass
+class JoinSource:
+    first: FromItem
+    joins: list[tuple[str, FromItem, E.Expr | None]] = field(default_factory=list)
+
+
+@dataclass
+class UnionSource:
+    arms: list["Block"]
+
+
+@dataclass
+class Block:
+    source: object  # TableRef, Block, JoinSource or UnionSource
     alias: str | None = None
+    out_names: dict[int, str] = field(default_factory=dict)  # select aliases when used as a subquery
+    casts: dict[int, DataType] = field(default_factory=dict)  # union arms: widen to the union's type
     env: dict[int, E.Expr] = field(default_factory=dict)
     select: list[E.Attribute] = field(default_factory=list)
     where: list[E.Expr] = field(default_factory=list)
@@ -136,6 +155,8 @@ class Compiler:
         if isinstance(expr, E.CaseWhen):
             return E.CaseWhen(tuple((t(c), t(v)) for c, v in expr.branches),
                               t(expr.otherwise) if expr.otherwise is not None else None)
+        if isinstance(expr, E.Coalesce):
+            return E.Coalesce(tuple(t(v) for v in expr.values))
         return expr
 
     # ---------------------------------------------------------------- substitution
@@ -176,6 +197,8 @@ class Compiler:
                                   go(e.otherwise) if e.otherwise is not None else None)
             if isinstance(e, E.AggregateCall):
                 return E.AggregateCall(e.function, go(e.child), e.distinct)
+            if isinstance(e, E.Coalesce):
+                return E.Coalesce(tuple(go(v) for v in e.values))
             raise TypeError(f"cannot substitute {type(e).__name__}")
 
         return go(expr)
@@ -196,16 +219,28 @@ class Compiler:
         b.select = list(node.attrs)
         return b
 
+    @staticmethod
+    def unique_names(attrs: list[E.Attribute]) -> dict[int, str]:
+        """Subquery column names; duplicates (after a join) get a numeric suffix."""
+        seen: set[str] = set()
+        out: dict[int, str] = {}
+        for a in attrs:
+            if a.id in out:
+                continue
+            name, n = a.name, 1
+            while name.lower() in seen:
+                n += 1
+                name = f"{a.name}_{n}"
+            seen.add(name.lower())
+            out[a.id] = name
+        return out
+
     def wrap(self, inner: Block, keep_order: bool) -> Block:
-        names = [a.name.lower() for a in inner.select]
-        if len(set(names)) != len(names):
-            raise UnsupportedOperationError(
-                "this plan needs a subquery, and its columns have duplicate names; rename them first "
-                "(prototype limitation)")
         alias = self._new_alias()
+        inner.out_names = self.unique_names(inner.select)
         outer = Block(source=inner, alias=alias)
         for a in inner.select:
-            outer.env[a.id] = E.SqlCol(a.name, alias, a.dtype, a.collation)
+            outer.env[a.id] = E.SqlCol(inner.out_names[a.id], alias, a.dtype, a.collation)
         outer.select = list(inner.select)
         exposed = {a.id for a in inner.select}
         if inner.order:
@@ -277,6 +312,15 @@ class Compiler:
             b.distinct = True
             return b
 
+        if isinstance(node, P.SubqueryAlias):
+            return self.build(node.child)
+
+        if isinstance(node, P.Join):
+            return self.join(node)
+
+        if isinstance(node, P.Union):
+            return self.union(node)
+
         if isinstance(node, P.CountRows):
             inner = self.build(node.child)
             outer = self.wrap(inner, keep_order=False)
@@ -287,6 +331,68 @@ class Compiler:
             return outer
 
         raise UnsupportedOperationError(f"cannot compile {type(node).__name__}")
+
+    # ---------------------------------------------------------------- joins and unions
+    @staticmethod
+    def _is_plain(b: Block) -> bool:
+        return not (b.where or b.grouped or b.having or b.top is not None or b.distinct or b.order)
+
+    def from_item(self, b: Block) -> tuple[FromItem, dict[int, E.Expr]]:
+        """One side of a join: the table itself when nothing else is applied, else a subquery."""
+        alias = self._new_alias()
+        if isinstance(b.source, P.TableRef) and self._is_plain(b):
+            def requalify(e: E.Expr) -> E.Expr:
+                if isinstance(e, E.SqlCol) and e.qualifier is None:
+                    return E.SqlCol(e.name, alias, e.dtype, e.collation)
+                return e
+
+            # Export only this side's output columns: in a self-join both sides share the scan's ids.
+            env = {a.id: E.transform(b.env[a.id], requalify) for a in b.select}
+            return FromItem(b.source, alias), env
+        b.order = b.order if b.top is not None else []
+        b.out_names = self.unique_names(b.select)
+        env = {a.id: E.SqlCol(b.out_names[a.id], alias, a.dtype, a.collation) for a in b.select}
+        return FromItem(b, alias), env
+
+    def join(self, node: P.Join) -> Block:
+        left = self.build(node.left)
+        right = self.build(node.right)
+        if isinstance(left.source, JoinSource) and self._is_plain(left):
+            source = JoinSource(left.source.first, list(left.source.joins))  # extend the join tree
+            env = dict(left.env)
+        else:
+            item, env = self.from_item(left)
+            source = JoinSource(item)
+        right_item, right_env = self.from_item(right)
+        env.update(right_env)
+        cond = None
+        if node.condition is not None:
+            cond = self.substitute(self.translate(node.condition), env)
+        source.joins.append((node.join_type, right_item, cond))
+        return Block(source=source, env=env, select=list(node.output))
+
+    def union(self, node: P.Union) -> Block:
+        arms = []
+        for child in node.inputs:
+            b = self.build(child)
+            if b.top is not None and b.order:
+                b = self.wrap(b, keep_order=False)  # ORDER BY is rejected inside a UNION arm
+            b.order = []
+            arms.append(b)
+        names = self.unique_names(list(node.attrs))
+        for arm, child in zip(arms, node.inputs):
+            arm.out_names = {}
+            for target, a in zip(node.attrs, child.output):
+                arm.out_names[a.id] = names[target.id]
+                if a.dtype != target.dtype:
+                    arm.casts[a.id] = target.dtype
+            arm.select = list(child.output)
+        alias = self._new_alias()
+        outer = Block(source=UnionSource(arms), alias=alias)
+        for a in node.attrs:
+            outer.env[a.id] = E.SqlCol(names[a.id], alias, a.dtype, a.collation)
+        outer.select = list(node.attrs)
+        return outer
 
     # ---------------------------------------------------------------- entry point
     def compile(self, plan: P.Plan) -> SqlStatement:
@@ -348,15 +454,14 @@ class Renderer:
             if b.distinct and self.c.needs_exact(E.AttrRef(a)) and not isinstance(expr, E.Exact):
                 self.c._note_exact(E.AttrRef(a))
                 expr = E.Exact(expr)
+            if a.id in b.casts:
+                expr = E.Cast(expr, b.casts[a.id])
+            name = a.name if top_level else b.out_names.get(a.id, a.name)
             text = self.value(expr)
-            plain = isinstance(expr, E.SqlCol) and expr.name == a.name
-            items.append(text if plain else f"{text} AS {quote(a.name)}")
+            plain = isinstance(expr, E.SqlCol) and expr.name == name
+            items.append(text if plain else f"{text} AS {quote(name)}")
         lines = [head + ", ".join(items)]
-        if isinstance(b.source, Block):
-            inner = self.block(b.source, top_level=False, indent=indent + "  ")
-            lines.append(f"FROM (\n{indent}  {inner}\n{indent}) AS {b.alias}")
-        else:
-            lines.append(f"FROM {b.source.quoted()}")
+        lines.append("FROM " + self.source(b.source, b.alias, indent))
         if b.where:
             lines.append("WHERE " + " AND ".join(self.pred(w) for w in b.where))
         if b.group_by:
@@ -366,6 +471,36 @@ class Renderer:
         if b.order and (top_level or b.top is not None):
             lines.append("ORDER BY " + ", ".join(self.order_key(o, b) for o in b.order))
         return f"\n{indent}".join(lines)
+
+    def subquery(self, inner: Block, alias: str, indent: str) -> str:
+        text = self.block(inner, top_level=False, indent=indent + "  ")
+        return f"(\n{indent}  {text}\n{indent}) AS {alias}"
+
+    def from_item(self, item: FromItem, indent: str) -> str:
+        if isinstance(item.source, Block):
+            return self.subquery(item.source, item.alias, indent)
+        return f"{item.source.quoted()} AS {item.alias}"
+
+    def source(self, src: object, alias: str | None, indent: str) -> str:
+        if isinstance(src, P.TableRef):
+            return src.quoted()
+        if isinstance(src, Block):
+            return self.subquery(src, alias, indent)
+        if isinstance(src, JoinSource):
+            parts = [self.from_item(src.first, indent)]
+            for join_type, item, cond in src.joins:
+                keyword = {"inner": "JOIN", "left": "LEFT OUTER JOIN", "right": "RIGHT OUTER JOIN",
+                           "full": "FULL OUTER JOIN", "cross": "CROSS JOIN"}[join_type]
+                text = f"{keyword} {self.from_item(item, indent)}"
+                if join_type != "cross":
+                    text += f" ON {self.pred(cond) if cond is not None else '1 = 1'}"
+                parts.append(text)
+            return f"\n{indent}".join(parts)
+        if isinstance(src, UnionSource):
+            arms = [self.block(arm, top_level=False, indent=indent + "  ") for arm in src.arms]
+            body = f"\n{indent}  UNION ALL\n{indent}  ".join(arms)
+            return f"(\n{indent}  {body}\n{indent}) AS {alias}"
+        raise UnsupportedOperationError(f"cannot render source {type(src).__name__}")
 
     def order_key(self, order: E.SortOrder, b: Block) -> str:
         key_plan = order.child
@@ -422,6 +557,8 @@ class Renderer:
             return f"(-{self.value(e.child)})"
         if isinstance(e, E.Cast):
             return self.cast(e)
+        if isinstance(e, E.Coalesce):
+            return f"COALESCE({', '.join(self.value(v) for v in e.values)})"
         if isinstance(e, E.CaseWhen):
             parts = " ".join(f"WHEN {self.pred(c)} THEN {self.value(v)}" for c, v in e.branches)
             tail = f" ELSE {self.value(e.otherwise)}" if e.otherwise is not None else ""

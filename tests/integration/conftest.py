@@ -23,6 +23,8 @@ SALES = [
     (9, 40, None, decimal.Decimal("9.00"), -3.0, datetime.date(2026, 1, 9)),
 ]
 
+CUSTOMERS = [(10, "Ana", "BR"), (20, "Bo", "us"), (30, "Cy", "BR"), (50, "Di", "US")]
+
 WORDS = [(1, "apple"), (2, "Apple"), (3, "APPLE"), (4, "banana"), (5, "apple "), (6, " apple"), (7, "Banana"),
          (8, "12"), (9, " 7 "), (10, "1.5"), (11, "abc"), (12, None)]
 
@@ -49,7 +51,7 @@ def raw_connection(iris_env):
     conn = iris.connect(iris_env["IRIS_HOST"], int(iris_env["IRIS_PORT"]), iris_env["IRIS_NAMESPACE"],
                         iris_env["IRIS_USERNAME"], iris_env["IRIS_PASSWORD"])
     cur = conn.cursor()
-    for t in ("Sales", "Words"):
+    for t in ("Sales", "Words", "Customers"):
         try:
             cur.execute(f"DROP TABLE {SCHEMA}.{t}")
         except Exception:  # noqa: BLE001 - table may not exist
@@ -59,8 +61,10 @@ def raw_connection(iris_env):
     cur.executemany(f"INSERT INTO {SCHEMA}.Sales VALUES (?,?,?,?,?,?)", [list(r) for r in SALES])
     cur.execute(f"CREATE TABLE {SCHEMA}.Words (id INT, w VARCHAR(20))")
     cur.executemany(f"INSERT INTO {SCHEMA}.Words VALUES (?,?)", [list(r) for r in WORDS])
+    cur.execute(f"CREATE TABLE {SCHEMA}.Customers (id INT NOT NULL, name VARCHAR(20), country VARCHAR(5))")
+    cur.executemany(f"INSERT INTO {SCHEMA}.Customers VALUES (?,?,?)", [list(r) for r in CUSTOMERS])
     yield conn
-    for t in ("Sales", "Words"):
+    for t in ("Sales", "Words", "Customers"):
         try:
             cur.execute(f"DROP TABLE {SCHEMA}.{t}")
         except Exception:  # noqa: BLE001

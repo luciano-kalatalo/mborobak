@@ -2,7 +2,7 @@
 
 Lazy, PySpark-style DataFrames for InterSystems IRIS. You write DataFrame code; Mborobak builds a plan and compiles it to one IRIS SQL statement, which runs inside IRIS when you call an action.
 
-> **Status: Phase 2 prototype.** Only the pipeline `table → filter/select/withColumn → groupBy → agg → orderBy → limit → collect/show/count` is implemented. See [docs/](docs/) for the scope and the three control documents.
+> **Status: Phase 2 prototype.** Implemented: `table`, `select`, `filter`, `withColumn`, `groupBy().agg()`, `orderBy`, `limit`, `distinct`, `join` (inner, left, right, full, cross; by name or condition), `alias`, `union`, and the actions `collect`, `count`, `take`, `first`, `show`, `toPandas`. Not yet: `session.sql()`. See [docs/](docs/) for the scope and the three control documents.
 
 ## Install (development)
 

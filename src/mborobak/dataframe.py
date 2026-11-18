@@ -9,6 +9,7 @@ from . import expressions as E
 from . import plan as P
 from .analyzer import (
     check_grouped,
+    wider,
     check_no_aggregate,
     find_attr,
     infer,
@@ -29,10 +30,17 @@ __all__ = ["DataFrame", "GroupedData"]
 
 _LATER = {
     "unionByName": "P1", "dropDuplicates": "P1", "drop_duplicates": "P1", "selectExpr": "P1",
-    "toLocalIterator": "P1", "write": "P1", "createOrReplaceTempView": "P1", "union": "P0 (not yet in the "
-    "prototype)", "unionAll": "P0 (not yet in the prototype)", "join": "P0 (not yet in the prototype)",
-    "crossJoin": "P0 (not yet in the prototype)", "alias": "P0 (not yet in the prototype)",
+    "toLocalIterator": "P1", "write": "P1", "createOrReplaceTempView": "P1",
 }
+
+_JOIN_TYPES = {
+    "inner": "inner",
+    "left": "left", "leftouter": "left", "left_outer": "left",
+    "right": "right", "rightouter": "right", "right_outer": "right",
+    "full": "full", "fullouter": "full", "full_outer": "full", "outer": "full",
+    "cross": "cross",
+}
+_LATER_JOINS = ("semi", "leftsemi", "left_semi", "anti", "leftanti", "left_anti")
 _NEVER = ("cache", "persist", "unpersist", "checkpoint", "localCheckpoint", "repartition", "coalesce",
           "rdd", "foreach", "foreachPartition", "mapInPandas", "toArrow", "writeStream")
 
@@ -206,6 +214,107 @@ class DataFrame:
 
     def agg(self, *exprs: Any) -> "DataFrame":
         return GroupedData(self, [], _op("agg")).agg(*exprs)
+
+    def alias(self, alias: str) -> "DataFrame":
+        if not isinstance(alias, str) or not alias or "." in alias:
+            raise ValueError("alias() takes a non-empty name without dots")
+        return self._with(P.SubqueryAlias(self._plan, alias))
+
+    # ---------------------------------------------------------------- joins
+    def join(self, other: "DataFrame", on: Any = None, how: str | None = None) -> "DataFrame":
+        op = _op("join")
+        if not isinstance(other, DataFrame):
+            raise TypeError("join() takes a DataFrame")
+        if other._session is not self._session:
+            raise ValueError("cannot join DataFrames from different sessions")
+        key = (how or "inner").lower()
+        if key in _LATER_JOINS:
+            raise UnsupportedOperationError(f"{how} joins are planned for P1", operation=op)
+        if key not in _JOIN_TYPES:
+            raise ValueError(f"unknown join type {how!r}; use one of {', '.join(_JOIN_TYPES)}")
+        join_type = _JOIN_TYPES[key]
+        left, right = self._plan, _distinct_ids(self._plan, other._plan)
+
+        if on is None or (isinstance(on, (list, tuple)) and not on):
+            return self._with(P.Join(left, right, "cross" if join_type == "inner" else join_type, None))
+        if join_type == "cross":
+            join_type = "inner"  # cross with a condition is an inner join, as in Spark
+
+        names = [on] if isinstance(on, str) else list(on) if isinstance(on, (list, tuple)) and all(
+            isinstance(n, str) for n in on) else None
+        if names is not None:
+            return self._using_join(left, right, names, join_type, op)
+
+        conditions = list(on) if isinstance(on, (list, tuple)) else [on]
+        if not all(isinstance(c, Column) for c in conditions):
+            raise TypeError("join(on=...) takes a column name, a list of names, or Column conditions")
+        draft = P.Join(left, right, join_type, None)
+        resolved = [resolve(c._expr, draft, op) for c in conditions]
+        cond = resolved[0]
+        for c in resolved[1:]:
+            cond = E.And(cond, c)
+        check_no_aggregate(cond, op, "a join condition")
+        dtype, _ = infer(cond, op)
+        if not isinstance(dtype, BooleanType):
+            raise AnalysisError(f"join condition must be boolean, got {dtype.simpleString()}", operation=op)
+        return self._with(P.Join(left, right, join_type, cond))
+
+    def _using_join(self, left: P.Plan, right: P.Plan, names: list[str], join_type: str, op: str) -> "DataFrame":
+        pairs = []
+        cond = None
+        for name in names:
+            la = find_attr(name, left.output, op)
+            ra = find_attr(name, right.output, op)
+            if wider(la.dtype, ra.dtype) is None:
+                raise AnalysisError(f"join key {name!r} has types {la.dtype.simpleString()} and "
+                                    f"{ra.dtype.simpleString()}", operation=op)
+            pairs.append((la, ra))
+            eq = E.Comparison("=", E.AttrRef(la), E.AttrRef(ra))
+            cond = eq if cond is None else E.And(cond, eq)
+        joined = P.Join(left, right, join_type, cond)
+        current = {a.id: a for a in joined.output}
+        items: list[tuple[E.Attribute, E.Expr]] = []
+        for la, ra in pairs:
+            la, ra = current[la.id], current[ra.id]
+            if join_type == "right":
+                items.append((ra, E.AttrRef(ra)))
+            elif join_type == "full":
+                dtype = wider(la.dtype, ra.dtype)
+                attr = E.Attribute(E.new_id(), la.name, dtype, la.nullable and ra.nullable)
+                items.append((attr, E.Coalesce((E.AttrRef(la), E.AttrRef(ra)))))
+            else:
+                items.append((la, E.AttrRef(la)))
+        key_ids = {a.id for pair in pairs for a in pair}
+        items += [(a, E.AttrRef(a)) for a in joined.output if a.id not in key_ids]
+        return self._with(P.Project(joined, tuple(items)))
+
+    def crossJoin(self, other: "DataFrame") -> "DataFrame":  # noqa: N802
+        return self.join(other, how="cross")
+
+    # ---------------------------------------------------------------- union
+    def union(self, other: "DataFrame") -> "DataFrame":
+        op = _op("union")
+        if not isinstance(other, DataFrame):
+            raise TypeError("union() takes a DataFrame")
+        first, second = self._plan.output, other._plan.output
+        if len(first) != len(second):
+            raise AnalysisError(f"union() needs the same number of columns: {len(first)} and {len(second)}",
+                                operation=op)
+        attrs = []
+        for a, b in zip(first, second):
+            t = wider(a.dtype, b.dtype)
+            if t is None or (isinstance(t, NullType)):
+                raise AnalysisError(
+                    f"union(): column {a.name!r} has types {a.dtype.simpleString()} and "
+                    f"{b.dtype.simpleString()}, which can't be combined (compatibility matrix UNI-03)",
+                    operation=op)
+            same = t == a.dtype
+            attrs.append(E.Attribute(a.id, a.name, t, a.nullable or b.nullable, a.collation if same else None))
+        inputs = (self._plan.inputs if isinstance(self._plan, P.Union) else (self._plan,)) + \
+            (other._plan.inputs if isinstance(other._plan, P.Union) else (other._plan,))
+        return self._with(P.Union(inputs, tuple(attrs)))
+
+    unionAll = union
 
     # ---------------------------------------------------------------- schema
     @property
@@ -384,6 +493,16 @@ class GroupedData:
 
     def max(self, *cols: str) -> DataFrame:  # noqa: A003
         return self._simple("max", cols)
+
+
+def _distinct_ids(left: P.Plan, right: P.Plan) -> P.Plan:
+    """Self-join: give the right side's columns new ids so both sides can be told apart."""
+    left_ids = {a.id for a in left.output}
+    if not any(a.id in left_ids for a in right.output):
+        return right
+    items = tuple((E.Attribute(E.new_id(), a.name, a.dtype, a.nullable, a.collation), E.AttrRef(a))
+                  for a in right.output)
+    return P.Project(right, items)
 
 
 # --------------------------------------------------------------------------- show()

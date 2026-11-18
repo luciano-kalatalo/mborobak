@@ -176,6 +176,16 @@ class CaseWhen(Expr):
         return tuple(out)
 
 
+@dataclass(frozen=True)
+class Coalesce(Expr):
+    """Internal: the key of a full outer join on column names (compiler spec §6.3)."""
+
+    values: tuple[Expr, ...]
+
+    def children(self):
+        return self.values
+
+
 AGG_FUNCTIONS = ("count", "sum", "avg", "min", "max")
 
 
@@ -220,6 +230,29 @@ class Exact(Expr):
 
     def children(self):
         return (self.child,)
+
+
+def transform(expr: Expr, fn) -> Expr:
+    """Bottom-up rewrite: children first, then ``fn`` on the rebuilt node."""
+    import dataclasses
+
+    if not dataclasses.is_dataclass(expr):
+        return fn(expr)
+    changes = {}
+    for f in dataclasses.fields(expr):
+        value = getattr(expr, f.name)
+        if isinstance(value, Expr):
+            new = transform(value, fn)
+        elif isinstance(value, tuple) and value and all(isinstance(v, Expr) for v in value):
+            new = tuple(transform(v, fn) for v in value)
+        elif isinstance(value, tuple) and value and all(isinstance(v, tuple) for v in value):
+            new = tuple(tuple(transform(x, fn) if isinstance(x, Expr) else x for x in v) for v in value)
+        else:
+            continue
+        if new is not value:
+            changes[f.name] = new
+    rebuilt = dataclasses.replace(expr, **changes) if changes else expr
+    return fn(rebuilt)
 
 
 def walk(expr: Expr):

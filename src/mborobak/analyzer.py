@@ -30,9 +30,56 @@ from .sql.types import (
 # --------------------------------------------------------------------------- resolution
 
 
-def find_attr(name: str, attrs: tuple[E.Attribute, ...], operation: str | None) -> E.Attribute:
-    clean = name.replace("`", "")
-    matches = [a for a in attrs if a.name.lower() == clean.lower()]
+def qualifiers(plan: Plan) -> dict[int, set[str]]:
+    """Names usable before a dot for each output column: table names and ``alias()`` names."""
+    from . import plan as P
+
+    if isinstance(plan, P.TableScan):
+        return {a.id: {plan.table.name.lower()} for a in plan.attrs}
+    if isinstance(plan, P.SubqueryAlias):
+        return {a.id: {plan.alias.lower()} for a in plan.output}
+    if isinstance(plan, P.Join):
+        out = qualifiers(plan.left)
+        for k, v in qualifiers(plan.right).items():
+            out.setdefault(k, set()).update(v)
+        return out
+    if isinstance(plan, P.Project):
+        child = qualifiers(plan.child)
+        out = {}
+        for attr, expr in plan.items:
+            if isinstance(expr, E.AttrRef) and expr.attr.id in child:
+                out[attr.id] = child[expr.attr.id]
+        return out
+    if isinstance(plan, (P.Filter, P.Sort, P.Limit, P.Distinct)):
+        return qualifiers(plan.children()[0])
+    return {}
+
+
+def _split_name(name: str) -> tuple[str | None, str]:
+    """``a.x`` → ("a", "x"); backticks protect dots: ```a.b``` → (None, "a.b")."""
+    if "`" in name:
+        parts = [p for p in name.split("`") if p not in ("", ".")]
+        if len(parts) == 2:
+            return parts[0], parts[1]
+        return None, name.replace("`", "")
+    if "." in name:
+        q, _, rest = name.rpartition(".")
+        return q, rest
+    return None, name
+
+
+def find_attr(name: str, attrs: tuple[E.Attribute, ...], operation: str | None,
+              quals: dict[int, set[str]] | None = None) -> E.Attribute:
+    qualifier, clean = _split_name(name)
+    candidates = attrs
+    if qualifier is not None:
+        q = qualifier.lower()
+        scoped = [a for a in attrs if q in (quals or {}).get(a.id, set())]
+        if scoped:
+            candidates = tuple(scoped)
+        else:
+            clean = name.replace("`", "")  # a column whose name contains a dot
+    matches = [a for a in candidates if a.name.lower() == clean.lower()]
     if len(matches) == 1:
         return matches[0]
     if not matches:
@@ -43,8 +90,8 @@ def find_attr(name: str, attrs: tuple[E.Attribute, ...], operation: str | None) 
             f"column {name!r} not found among [{', '.join(names)}].{hint}", operation=operation
         )
     raise AmbiguousColumnError(
-        f"column {name!r} is ambiguous: {len(matches)} columns have this name. "
-        "Rename one with alias() or withColumnRenamed().",
+        f"column {name!r} is ambiguous: {len(matches)} columns have this name. Qualify it with "
+        "df.alias('a') and col('a.name'), or use df['name'] of the DataFrame you mean.",
         operation=operation,
     )
 
@@ -52,12 +99,15 @@ def find_attr(name: str, attrs: tuple[E.Attribute, ...], operation: str | None) 
 def resolve(expr: E.Expr, plan: Plan, operation: str | None, allow_star: bool = False) -> E.Expr:
     """Replace names with attribute references against ``plan.output``."""
     attrs = plan.output
-    ids = {a.id for a in attrs}
+    ids = {a.id: a for a in attrs}
+    quals = qualifiers(plan)
 
     def go(e: E.Expr) -> E.Expr:
         if isinstance(e, E.UnresolvedColumn):
-            return E.AttrRef(find_attr(e.name, attrs, operation))
+            return E.AttrRef(find_attr(e.name, attrs, operation, quals))
         if isinstance(e, E.AttrRef):
+            if e.attr.id in ids:
+                return E.AttrRef(ids[e.attr.id])  # current nullability (outer joins)
             if e.attr.id not in ids:
                 raise ColumnNotFoundError(
                     f"column {e.attr.name!r} (from df[...]) is not available here; it was removed "
@@ -163,8 +213,14 @@ def wider(a: DataType, b: DataType) -> DataType | None:
     if isinstance(b, NullType):
         return a
     if a.is_numeric and b.is_numeric:
-        return _numeric_result("+", a, b) if not (isinstance(a, DoubleType) or isinstance(b, DoubleType)) \
-            else DoubleType()
+        if isinstance(a, DoubleType) or isinstance(b, DoubleType):
+            return DoubleType()
+        if isinstance(a, DecimalType) or isinstance(b, DecimalType):
+            # Spark's wider decimal: enough integer and fraction digits for both, no extra digit.
+            x, y = _as_decimal(a), _as_decimal(b)
+            scale = max(x.scale, y.scale)
+            return DecimalType(min(38, max(x.precision - x.scale, y.precision - y.scale) + scale), scale)
+        return LongType() if isinstance(a, LongType) or isinstance(b, LongType) else IntegerType()
     if {type(a), type(b)} == {DateType, TimestampNTZType}:
         return TimestampNTZType()
     return None
@@ -297,6 +353,14 @@ def infer(expr: E.Expr, operation: str | None = None) -> tuple[DataType, bool]:
         return ct, True  # min, max
     if isinstance(expr, E.SortOrder):
         return infer(expr.child, operation)
+    if isinstance(expr, E.Coalesce):
+        result: DataType = NullType()
+        nullable = True
+        for v in expr.values:
+            t, n = infer(v, operation)
+            result = wider(result, t) or result
+            nullable = nullable and n
+        return result, nullable
     if isinstance(expr, E.Star):
         raise AnalysisError("'*' is not an expression here", operation=operation)
     raise UnsupportedOperationError(f"cannot type {type(expr).__name__}", operation=operation)

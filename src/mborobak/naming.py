@@ -22,7 +22,9 @@ def expr_name(expr: E.Expr) -> str:
     if isinstance(expr, E.Alias):
         return expr.name
     if isinstance(expr, E.UnresolvedColumn):
-        return expr.name.split(".")[-1] if "`" not in expr.name else expr.name.replace("`", "")
+        from .analyzer import _split_name
+
+        return _split_name(expr.name)[1]
     if isinstance(expr, E.AttrRef):
         return expr.attr.name
     if isinstance(expr, E.Star):
@@ -63,4 +65,6 @@ def expr_name(expr: E.Expr) -> str:
         return f"{expr.function}({'DISTINCT ' if expr.distinct else ''}{inner})"
     if isinstance(expr, E.SortOrder):
         return expr_name(expr.child)
+    if isinstance(expr, E.Coalesce):
+        return f"coalesce({', '.join(expr_name(v) for v in expr.values)})"
     raise TypeError(f"no name for {type(expr).__name__}")
