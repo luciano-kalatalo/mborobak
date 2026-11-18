@@ -1,22 +1,98 @@
 # Mborobak
 
-Lazy, PySpark-style DataFrames for InterSystems IRIS. You write DataFrame code; Mborobak builds a plan and compiles it to one IRIS SQL statement, which runs inside IRIS when you call an action.
+**PySpark-style DataFrames for InterSystems IRIS, compiled to one SQL statement and run inside IRIS.**
 
-> **Status: Phase 2 prototype.** Implemented: `table`, `select`, `filter`, `withColumn`, `groupBy().agg()`, `orderBy`, `limit`, `distinct`, `join` (inner, left, right, full, cross; by name or condition), `alias`, `union`, and the actions `collect`, `count`, `take`, `first`, `show`, `toPandas`. `session.sql()` (IRIS SQL with `?` parameters) works too. See [docs/](docs/) for the scope and the three control documents.
+You write the DataFrame code you already know from PySpark. Mborobak builds a lazy, immutable plan and compiles it to a single IRIS SQL statement with parameters. The query runs inside IRIS when you call an action (`show()`, `collect()`, `count()`, `toPandas()`), and only the result travels to Python. Nothing is computed in Python that IRIS can compute, and there is no Spark or JVM.
 
-## Install (development)
+```python
+from mborobak import MborobakSession
+from mborobak.sql import functions as F
+
+session = MborobakSession.builder.config(map={...}).getOrCreate()   # connection details below
+
+revenue = (
+    session.table("Sales")
+    .filter(F.col("status") == "PAID")
+    .groupBy("customer_id")
+    .agg(F.sum("amount").alias("revenue"))
+    .orderBy(F.col("revenue").desc())
+)
+revenue.explain()   # the plan, the IRIS SQL and its parameters; nothing has run yet
+revenue.show()      # one IRIS query
+```
+
+```sql
+SELECT "customer_id", SUM("amount") AS "revenue"
+FROM "SQLUser"."Sales"
+WHERE %EXACT("status") = ?
+GROUP BY "customer_id"
+ORDER BY SUM("amount") DESC
+```
+
+## Why
+
+IRIS is fast at SQL, and many data teams think in DataFrames. Mborobak gives them the PySpark API without moving data out of IRIS, and makes the results match what PySpark would return, including where IRIS's defaults differ:
+
+- **Strings compare case-sensitively,** as in Spark. IRIS's default collation treats `'PAID'` and `'paid'` as equal and returns grouped values uppercased. Mborobak adds `%EXACT` where it changes the result, reads each column's collation from the catalog to skip it where it isn't needed, and offers `mborobak.sql.stringSemantics = "iris"` for IRIS's rules.
+- **Spark's ANSI errors.** Division by zero, invalid casts (`'abc'` to `int`, which IRIS silently turns into `0`) and casting NaN to an integer raise clear Mborobak errors instead of returning wrong values.
+- **Spark's sort order for `DOUBLE`.** IRIS sorts −Infinity after the largest numbers and uses −1E19 internally as its NULL marker when sorting, so a stored −1E19 comes back as NULL. Mborobak restores Spark's order and values.
+- **Spark's types and names:** `int / int` is a `double`, `sum(int)` is a `bigint`, decimal precision follows Spark's rules, and unaliased columns are named `sum(amount)`, `count(1)`, `(a + b)`.
+- **What IRIS SQL requires:** `TOP` instead of `LIMIT` in subqueries, `ORDER BY` only where IRIS allows it, `WITH` clauses moved to the front of the statement, no `GROUP BY` positions (IRIS reads `GROUP BY 1` as the constant 1), and NaN and infinity sent as parameters.
+
+## Features
+
+| Area | Supported |
+|------|-----------|
+| Sources | `session.table(name)`, `session.sql(query, args)` (IRIS SQL with `?` parameters) |
+| Transformations | `select`, `filter`/`where`, `withColumn(s)`, `withColumnRenamed`, `drop`, `orderBy`/`sort`, `limit`, `distinct`, `alias` |
+| Joins | inner, left, right, full, cross; on a column name, a list of names, or conditions; self-joins via `alias()` |
+| Aggregation | `groupBy().agg()`, `count`, `sum`, `avg`/`mean`, `min`, `max`, `countDistinct`; `agg({"x": "sum"})`; filters after `agg()` |
+| Union | `union`/`unionAll` by position, with Spark's numeric widening |
+| Expressions | arithmetic, comparisons, `&`, `\|`, `~`, `when().otherwise()`, `cast`, `isNull`, `isin`, `like`, `between`, `eqNullSafe`, sort orders with null placement |
+| Actions | `collect`, `show`, `count`, `take`, `first`, `head`, `toPandas` |
+| Inspection | `schema`, `columns`, `dtypes`, `printSchema`, `explain()`, `toSQL()`, per-action metrics in `session.lastExecution` |
+
+Transformations never run queries. Each action runs exactly one data query; table schemas are looked up once and cached.
+
+## Installation
+
+Requires Python 3.11 or newer and the official IRIS driver, which is installed with the package.
 
 ```bash
+pip install "mborobak[pandas] @ git+https://github.com/luciano-kalatalo/mborobak"
+```
+
+From a clone, for development:
+
+```bash
+git clone https://github.com/luciano-kalatalo/mborobak && cd mborobak
 python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 ```
 
-## Example
+## Running IRIS
+
+Any IRIS 2026.2 or later works. The contest build is **IRIS 2026.3.0AI build 154** (AI Hub Community image, from the InterSystems Early Access Program portal). Load it once and start it with the included `docker-compose.yml`:
+
+```bash
+docker load -i iris_arm64-community-2026.3.0AI.154.0-docker.tar.gz    # x64: iris-community-2026.3.0AI.154.0-docker.tar.gz
+export IRIS_IMAGE=<the image name that docker load printed>
+docker compose up -d
+```
+
+A fresh community container asks for a password change on first login. For a local, throwaway container you can clear that once:
+
+```bash
+docker compose exec iris iris session IRIS -U %SYS '##class(Security.Users).UnExpireUserPasswords("*")'
+```
+
+Then connect with the image's default credentials (`_SYSTEM` / `SYS`, namespace `USER`), or with your own user on a real instance.
+
+## Connecting
 
 ```python
 import os
 from mborobak import MborobakSession
-from mborobak.sql import functions as F
 
 session = (
     MborobakSession.builder
@@ -27,38 +103,78 @@ session = (
     .config("password", os.environ["IRIS_PASSWORD"])
     .getOrCreate()
 )
-
-result = (
-    session.table("Sales")
-    .filter(F.col("status") == "PAID")
-    .groupBy("customer_id")
-    .agg(F.sum("amount").alias("revenue"))
-    .orderBy(F.col("revenue").desc())
-)
-
-result.explain()   # plan, SQL and parameters, without running anything
-result.show()      # runs one query in IRIS
 ```
+
+Or pass an existing connection: `MborobakSession.builder.connection(iris.connect(...)).getOrCreate()`. Keep credentials in the environment or a secrets store, not in code.
+
+## Demo
+
+[`examples/demo.py`](examples/demo.py) creates two small tables and walks through the features: a lazy pipeline and its `explain()`, one query per action, PySpark vs. IRIS string rules, joins and self-joins, union, NaN and infinity in sorting, ANSI casts and errors, `session.sql()`, and `toPandas()`.
+
+```bash
+export IRIS_HOST=localhost IRIS_PORT=1972 IRIS_NAMESPACE=USER IRIS_USERNAME=_SYSTEM IRIS_PASSWORD=SYS
+python examples/demo.py
+```
+
+An excerpt of its output:
+
+```
+3. PySpark semantics on IRIS: 'PAID' and 'paid' are different values
++------+-----+
+|status|count|
++------+-----+
+|  OPEN|    1|
+|  PAID|    5|
+|  paid|    1|
++------+-----+
+
+5. Edge cases handled like Spark: NaN, infinity, NULL and -1e19 in a DOUBLE sort
++---+---------+
+| id|    score|
++---+---------+
+|  2|     NULL|
+|  5|-Infinity|
+|  3|  -1.0E19|
+|  7|      0.0|
+|  1|      1.5|
+|  6|      2.5|
+|  4|      NaN|
++---+---------+
+```
+
+## How it works
+
+```
+DataFrame calls ──► immutable logical plan ──► analyzer (names, types; errors at the call that caused them)
+   ──► required IRIS translations (collation, ordering, limits, casts) ──► SQL generation
+   ──► one IRIS statement + parameters ──► values converted to the schema's types ──► Rows / pandas
+```
+
+The design is specified in three control documents:
+
+- [SQL compiler specification](docs/compiler-spec.md): plan nodes, typing, the IRIS translations and SQL generation.
+- [API contract](docs/api-contract.md): every public call, its arguments, errors and the queries it may run.
+- [Compatibility matrix](docs/compatibility-matrix.md): behavior by behavior, how Mborobak on IRIS compares with PySpark 4.3 (ANSI on), and what it does about each difference.
+
+They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md) and follow-up probes in [`probes/`](probes/).
+
+## Compatibility and performance
+
+- **Compared with PySpark 4.3.** A differential suite runs the same DataFrame code on Mborobak and on PySpark with ANSI mode on, and compares names, types and rows. 80 matrix rows are checked this way: 70 match, and 10 are documented known differences that the suite confirms. The main ones are integer and decimal overflow (not detected), `max` ignoring NaN, and IRIS's precision for very wide decimal division.
+- **Benchmarked against hand-written IRIS SQL** through the same driver, at 10k to 1M rows ([report](docs/benchmark-report-2026-11-18.md)). Every result matches. Planning and compilation take about 0.05 ms per action. Queries returning few rows run at hand-written speed; returning many rows costs extra for converting values to Python types (about +20% for 100k rows returned).
 
 ## Tests
 
 ```bash
-.venv/bin/pytest tests/unit                 # no IRIS needed
-.venv/bin/pytest tests/integration          # needs IRIS_HOST, IRIS_PORT, IRIS_NAMESPACE, IRIS_USERNAME, IRIS_PASSWORD
+.venv/bin/pytest tests/unit          # compiler and API, no IRIS needed
+.venv/bin/pytest tests/integration   # against IRIS: needs IRIS_HOST, IRIS_PORT, IRIS_NAMESPACE, IRIS_USERNAME, IRIS_PASSWORD
+.venv/bin/pytest tests/compat        # against IRIS and PySpark 4.3 (pip install -e ".[compat]", Java 17+)
 ```
 
-### PySpark comparison
+## Status
 
-`tests/compat` runs the same DataFrame code on Mborobak and on PySpark 4.3 (ANSI on) and compares names, types and rows, one test per row of the [compatibility matrix](docs/compatibility-matrix.md). It needs IRIS (as above), PySpark and Java 17+:
-
-```bash
-brew install openjdk@21
-.venv/bin/pip install -e ".[compat]"
-.venv/bin/pytest tests/compat
-```
-
-The tests find Homebrew's `openjdk@21` on their own; set `JAVA_HOME` to use another JDK.
+Version 0.1, built for the InterSystems Open Exchange contest. It covers the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md). Planned next: window functions, date and string functions, `createDataFrame`, semi and anti joins, and named `sql()` parameters.
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).

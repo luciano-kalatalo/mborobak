@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import decimal
+import math
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -558,11 +560,27 @@ def _distinct_ids(left: P.Plan, right: P.Plan) -> P.Plan:
 # --------------------------------------------------------------------------- show()
 
 
+def java_double(v: float) -> str:
+    """A double as Spark (Java's Double.toString) prints it: NaN, -Infinity, 1.5, -1.0E19, 1.2345678E7."""
+    if math.isnan(v):
+        return "NaN"
+    if math.isinf(v):
+        return "Infinity" if v > 0 else "-Infinity"
+    if v == 0 or 1e-3 <= abs(v) < 1e7:
+        text = repr(v)
+        return text if "e" not in text else f"{v:f}".rstrip("0").rstrip(".") + ".0"
+    sign, digits, exponent = decimal.Decimal(repr(v)).normalize().as_tuple()
+    mantissa = "".join(map(str, digits))
+    return f"{'-' if sign else ''}{mantissa[0]}.{mantissa[1:] or '0'}E{len(mantissa) - 1 + exponent}"
+
+
 def _cell(v: Any) -> str:
     if v is None:
         return "NULL"
     if isinstance(v, bool):
         return "true" if v else "false"
+    if isinstance(v, float):
+        return java_double(v)
     return str(v)
 
 

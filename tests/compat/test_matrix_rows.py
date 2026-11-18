@@ -417,12 +417,13 @@ def test_RES_02_to_pandas_dtypes(pair):
 
 
 def test_RES_04_show_format(pair, capsys):
-    mb, sp = pair.both("strings", lambda F, df: df.orderBy("id").select("id", "s"))
-    mb.show()
-    mb_out = capsys.readouterr().out
-    sp.show()
-    sp_out = capsys.readouterr().out
-    assert mb_out == sp_out
+    for name, cols in (("strings", ("id", "s")), ("nums", ("id", "d", "n"))):  # doubles print as in Java
+        mb, sp = pair.both(name, lambda F, df: df.orderBy("id").select(*cols))
+        mb.show()
+        mb_out = capsys.readouterr().out
+        sp.show()
+        sp_out = capsys.readouterr().out
+        assert mb_out == sp_out
 
 
 # --------------------------------------------------------------------------- rows added after the code review
