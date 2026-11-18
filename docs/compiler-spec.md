@@ -6,7 +6,7 @@ Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as
 
 ## 1. Purpose and boundaries
 
-This document defines how a chain of DataFrame operations becomes one IRIS SQL statement plus its parameters. It covers the P0 operations in scope §5.1. It does not cover the public API's signatures and error messages (control document 2, the API contract) or the PySpark comparison (control document 3, the compatibility matrix).
+This document defines how a chain of DataFrame operations becomes one IRIS SQL statement plus its parameters. It covers the P0 operations in scope §5.1. It does not cover the public API's signatures and error messages (control document 2, the [API contract](api-contract.md)) or the PySpark comparison (control document 3, the compatibility matrix).
 
 Design principles:
 
