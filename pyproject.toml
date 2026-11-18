@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mborobak"
+version = "0.0.1"
+description = "Lazy, PySpark-style DataFrames that compile to InterSystems IRIS SQL"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = ["intersystems-irispython>=5.4"]
+
+[project.optional-dependencies]
+pandas = ["pandas>=2.0"]
+dev = ["pytest>=8", "pandas>=2.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mborobak"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["iris: needs a running IRIS instance (IRIS_HOST and friends)"]
