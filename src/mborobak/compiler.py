@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from . import expressions as E
 from . import plan as P
 from .analyzer import infer
-from .errors import PlanTooLargeError, UnsupportedOperationError
+from .errors import AnalysisError, PlanTooLargeError, UnsupportedOperationError
 from .sql.types import (
     BooleanType,
     DataType,
@@ -94,6 +94,7 @@ class Compiler:
         self.options = options
         self.translations: list[str] = []
         self._alias_counter = 0
+        self.ctes: list[tuple[str, tuple]] = []  # (WITH text, its parameters) from sql() sources
 
     # ---------------------------------------------------------------- D10 collation
     def needs_exact(self, expr: E.Expr) -> bool:
@@ -315,6 +316,23 @@ class Compiler:
         if isinstance(node, P.SubqueryAlias):
             return self.build(node.child)
 
+        if isinstance(node, P.SqlSource):
+            names = [a.name.lower() for a in node.attrs]
+            if len(set(names)) != len(names):
+                raise AnalysisError(
+                    "the sql() query has duplicate column names; give them distinct aliases in the SQL "
+                    "to transform its result")
+            if node.query.cte:
+                entry = (node.query.cte, node.args[:node.query.cte_params])
+                if entry not in self.ctes:
+                    self.ctes.append(entry)
+            alias = self._new_alias()
+            b = Block(source=node, alias=alias)
+            for a in node.attrs:
+                b.env[a.id] = E.SqlCol(a.name, alias, a.dtype, a.collation)
+            b.select = list(node.attrs)
+            return b
+
         if isinstance(node, P.Join):
             return self.join(node)
 
@@ -396,14 +414,28 @@ class Compiler:
 
     # ---------------------------------------------------------------- entry point
     def compile(self, plan: P.Plan) -> SqlStatement:
+        schema = StructType([StructField(a.name, a.dtype, a.nullable) for a in plan.output])
+        if isinstance(plan, P.SqlSource):
+            # The user's query on its own runs as written, so its ORDER BY keeps its meaning.
+            text = plan.query.original
+            fingerprint = hashlib.sha256(text.encode()).hexdigest()[:16]
+            return SqlStatement(text, list(plan.args), schema, [], fingerprint)
         block = self.build(plan)
         renderer = Renderer(self)
         text = renderer.block(block, top_level=True)
+        params = renderer.params
+        if self.ctes:
+            if len({cte for cte, _ in self.ctes}) > 1:
+                raise UnsupportedOperationError(
+                    "combining two different sql() queries that both use WITH is not supported")
+            cte, cte_args = self.ctes[0]
+            text = f"{cte}\n{text}"
+            params = list(cte_args) + params
+            renderer.params = params
         if len(renderer.params) > self.options.max_parameters:
             raise PlanTooLargeError(
                 f"the query needs {len(renderer.params)} parameters; the limit is "
                 f"{self.options.max_parameters} (IRIS fails near 999). Shorten long isin() lists.")
-        schema = StructType([StructField(a.name, a.dtype, a.nullable) for a in plan.output])
         fingerprint = hashlib.sha256(text.encode()).hexdigest()[:16]
         return SqlStatement(text, renderer.params, schema, list(self.translations), fingerprint)
 
@@ -496,6 +528,11 @@ class Renderer:
                     text += f" ON {self.pred(cond) if cond is not None else '1 = 1'}"
                 parts.append(text)
             return f"\n{indent}".join(parts)
+        if isinstance(src, P.SqlSource):
+            q = src.query
+            self.params.extend(src.args[q.cte_params:])
+            # The user's text is kept byte for byte (no re-indenting: it may contain multi-line strings).
+            return f"(\n{q.body}\n{indent}) AS {alias}"
         if isinstance(src, UnionSource):
             arms = [self.block(arm, top_level=False, indent=indent + "  ") for arm in src.arms]
             body = f"\n{indent}  UNION ALL\n{indent}  ".join(arms)

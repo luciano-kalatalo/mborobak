@@ -139,7 +139,8 @@ class MborobakSession:
     _active: "MborobakSession | None" = None
 
     def __init__(self, conn_opts: dict, settings: dict, connection=None, app_name: str | None = None,
-                 catalog: Catalog | None = None):
+                 catalog: Catalog | None = None, describer=None):
+        self._describer = describer  # unit tests: (sql, params) -> cursor.description
         self._conn_opts = dict(conn_opts)
         self._owns_connection = connection is None and catalog is None
         self._closed = False
@@ -157,9 +158,9 @@ class MborobakSession:
         self.irisVersion: str | None = None
 
     @classmethod
-    def _for_tests(cls, catalog: Catalog, **settings) -> "MborobakSession":
+    def _for_tests(cls, catalog: Catalog, describer=None, **settings) -> "MborobakSession":
         """A session without IRIS, for compiler unit tests."""
-        return cls({}, settings, None, None, catalog=catalog)
+        return cls({}, settings, None, None, catalog=catalog, describer=describer)
 
     @classmethod
     def getActiveSession(cls) -> "MborobakSession | None":  # noqa: N802
@@ -204,8 +205,45 @@ class MborobakSession:
         attrs, unsupported = info.attributes()
         return DataFrame(self, P.TableScan(info.table, attrs, unsupported))
 
-    def sql(self, sqlQuery: str, args: list | None = None):  # noqa: N803
-        raise UnsupportedOperationError("session.sql() is P0 but not yet in the prototype")
+    def sql(self, sqlQuery: str, args: list | tuple | None = None):  # noqa: N803
+        """A DataFrame over one IRIS SELECT. ``args`` fill its ``?`` markers, in order."""
+        from .catalog import type_from_description
+        from .dataframe import DataFrame
+        from .errors import UnsupportedTypeError
+        from .sqltext import prepare
+
+        self._check_open()
+        loc = caller_location()
+        op = f"sql at {loc}" if loc else "sql"
+        if isinstance(args, dict):
+            raise UnsupportedOperationError("named sql() parameters are planned for P1; pass a list",
+                                            operation=op)
+        values = tuple(args or ())
+        query = prepare(sqlQuery)
+        if query.params != len(values):
+            raise ValueError(f"the query has {query.params} '?' markers but {len(values)} args were given")
+        probe = f"SELECT * FROM ({query.body}) AS mborobak_q WHERE 1 = 0"
+        if query.cte:
+            probe = f"{query.cte}\n{probe}"
+        description = self._describe(probe, list(values), op)
+        attrs = []
+        for d in description:
+            name, type_code, precision, scale = d[0], d[1], d[4], d[5]
+            iris_type, dtype = type_from_description(type_code, precision, scale)
+            if dtype is None:
+                raise UnsupportedTypeError(
+                    f"column {name!r} of the query has IRIS type {iris_type}, which is not supported in P0; "
+                    "CAST it in the SQL (for example to VARCHAR)", operation=op)
+            nullable = len(d) < 7 or d[6] != 0
+            attrs.append(E.Attribute(E.new_id(), name, dtype, nullable, None))
+        return DataFrame(self, P.SqlSource(query, values, tuple(attrs)))
+
+    def _describe(self, sql: str, params: list, operation: str | None):
+        if self._describer is not None:
+            return self._describer(sql, params)
+        if self._executor is None:
+            raise MborobakConnectionError("this session has no IRIS connection")
+        return self._executor.describe(sql, params, operation)
 
     # ---------------------------------------------------------------- compile and run
     def _options(self) -> CompileOptions:

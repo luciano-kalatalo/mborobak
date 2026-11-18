@@ -76,6 +76,31 @@ def map_type(data_type: str, precision, scale) -> DataType | None:
     return None
 
 
+# JDBC type codes reported by the IRIS driver in cursor.description (probe for session.sql()).
+_DESCRIPTION_TYPES = {
+    4: "integer", 5: "smallint", -6: "tinyint", -5: "bigint",
+    8: "double", 6: "float", 7: "real",
+    2: "numeric", 3: "decimal",
+    12: "varchar", 1: "char", -1: "longvarchar", -9: "varchar", -15: "char",
+    -7: "bit", 16: "bit",
+    1091: "date", 91: "date",
+    1093: "timestamp", 93: "timestamp",
+    # Not supported in P0; named so error messages say what the column is.
+    1092: "time", 92: "time", -2: "binary", -3: "varbinary", -4: "longvarbinary",
+    2004: "blob", 2005: "clob",
+}
+
+
+def type_from_description(type_code, precision, scale) -> tuple[str, DataType | None]:
+    """IRIS type name and Mborobak type for one ``cursor.description`` entry."""
+    name = _DESCRIPTION_TYPES.get(type_code, f"type code {type_code}")
+    if name in ("numeric", "decimal"):
+        p = int(precision or 38)
+        s = max(0, int(scale or 0))
+        return name, DecimalType(min(max(p, s, 1), 38), min(s, 38))
+    return name, map_type(name, precision, scale)
+
+
 def parse_collation(parameters: str | None) -> str | None:
     """Value after ``COLLATION`` in ``CompiledProperty.Parameters``; '' means the namespace default."""
     if parameters is None:

@@ -105,7 +105,14 @@ Unknown `mborobak.*` keys raise `UnsupportedOperationError` listing the valid ke
 - `query` is one IRIS `SELECT` statement (or `WITH … SELECT`). Anything else raises `UnsupportedOperationError` before running.
 - `args` is a list of values for `?` markers, in order. The values are sent as parameters, never pasted into the text. Named parameters (`:name`, PySpark's dict form) are P1.
 - The result is a `DataFrame` like any other: transformations wrap the query as a subquery (scope §6.7). Its schema comes from preparing the statement, without fetching rows (scope §5.2).
-- An `ORDER BY` without `TOP` in `query` follows compiler spec §7.2: Mborobak adds `TOP ALL` when the query becomes a subquery. Note that a later transformation may still drop the order, as in Spark.
+- A `sql()` DataFrame used on its own (for example `session.sql(q).collect()`) runs the query exactly as written, so its `ORDER BY` holds.
+- When transformations follow, the query becomes a subquery, and Mborobak adjusts it the way IRIS requires (prototype, verified on IRIS 2026.2):
+  - an `ORDER BY` without `TOP` gets `TOP ALL` (compiler spec §7.2);
+  - a `UNION … ORDER BY` is wrapped as `SELECT TOP ALL * FROM (union) ORDER BY …`, because IRIS rejects it as a subquery even with `TOP ALL`;
+  - a `WITH` clause is moved to the front of the final statement, because IRIS rejects `WITH` inside a subquery. Combining two different `sql()` queries that both use `WITH` raises `UnsupportedOperationError`.
+- A later transformation may still drop the order, as in Spark.
+- Result columns must have distinct names before transformations can follow; IRIS names unaliased expressions `Expression_1`, `Expression_2`, …, so alias them in the SQL.
+- Column types come from the driver's result metadata. A column of a type Mborobak doesn't support (for example `TIME`) raises `UnsupportedTypeError` at the `sql()` call; cast it in the SQL.
 
 **Differs from PySpark:** the SQL dialect is IRIS SQL, not Spark SQL.
 

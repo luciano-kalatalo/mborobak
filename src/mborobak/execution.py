@@ -170,6 +170,21 @@ class Executor:
         finally:
             cur.close()
 
+    def describe(self, sql: str, params: list, operation: str | None):
+        """Column metadata of a query, read without fetching rows (counts as a schema lookup)."""
+        cur = self.connection.cursor()
+        try:
+            try:
+                cur.execute(sql, params)
+            except Exception as exc:  # noqa: BLE001
+                raise map_error(exc, sql, operation, []) from exc
+            self.counter.schema_lookups += 1
+            description = [tuple(d) for d in (cur.description or [])]
+            cur.fetchall()
+            return description
+        finally:
+            cur.close()
+
     def run(self, sql: str, params: list, operation: str | None, candidates: list[str]):
         """Execute and fetch; returns (rows, server_ms, fetch_ms)."""
         cur = self.connection.cursor()

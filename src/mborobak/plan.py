@@ -125,6 +125,19 @@ class Distinct(Plan):
 
 
 @dataclass(frozen=True, eq=False)
+class SqlSource(Plan):
+    """``session.sql(query, args)``: the user's SELECT, used as a subquery (API contract §3.5)."""
+
+    query: object  # sqltext.PreparedQuery
+    args: tuple
+    attrs: tuple[E.Attribute, ...]
+
+    @property
+    def output(self):
+        return self.attrs
+
+
+@dataclass(frozen=True, eq=False)
 class SubqueryAlias(Plan):
     """``df.alias("a")``: same columns, reachable as ``col("a.x")``."""
 
@@ -219,6 +232,8 @@ def plan_key(plan: Plan) -> tuple:
         return ("count", plan_key(plan.child))  # the output attribute is new on every call
     if isinstance(plan, SubqueryAlias):
         return ("alias", plan_key(plan.child), plan.alias)
+    if isinstance(plan, SqlSource):
+        return ("sql", plan.query.original, plan.args, tuple(a.id for a in plan.attrs))
     if isinstance(plan, Join):
         return ("join", plan_key(plan.left), plan_key(plan.right), plan.join_type, plan.condition)
     if isinstance(plan, Union):
@@ -274,6 +289,8 @@ def describe(plan: Plan) -> str:
         return "Count"
     if isinstance(plan, SubqueryAlias):
         return f"SubqueryAlias {plan.alias}"
+    if isinstance(plan, SqlSource):
+        return f"SqlSource [{', '.join(a.name for a in plan.attrs)}]"
     if isinstance(plan, Join):
         cond = f" {_e(plan.condition)}" if plan.condition is not None else ""
         return f"Join {plan.join_type}{cond}"
