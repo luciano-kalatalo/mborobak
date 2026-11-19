@@ -11,6 +11,9 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = ["intersystems-irispython>=5.4"]
 
+[project.scripts]
+mborobak-scan = "mborobak.scan:main"
+
 [project.optional-dependencies]
 pandas = ["pandas>=2.0"]
 dev = ["pytest>=8", "pandas>=2.0"]

@@ -141,6 +141,25 @@ An excerpt of its output:
 +---+---------+
 ```
 
+## Will my notebook run? (compatibility scanner)
+
+`mborobak-scan` reads PySpark notebooks (`.ipynb`, Databricks `.py` exports) or scripts without running them. It lists every PySpark call and whether Mborobak supports it today, plans it (with the release), or leaves it out of scope (`display()`, `spark.read`, MLlib, streaming).
+
+```bash
+mborobak-scan my_notebook.ipynb            # summary by status
+mborobak-scan notebooks/ --details         # every call, with cell and line
+mborobak-scan my_notebook.ipynb --format markdown > scan.md   # or --format json
+```
+
+```
+Mborobak compatibility scan: 1 file(s)
+76 PySpark calls, 50 distinct: 42 supported, 29 planned, 1 not scheduled, 4 out of scope
+Calls supported: today 55%, after 0.2 88%, after 0.2.x 91%, after 0.3 93%
+...
+```
+
+It matches calls by name, not by type, so treat its figures as an estimate.
+
 ## How it works
 
 ```
@@ -174,7 +193,7 @@ They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md)
 
 Version 0.1, built for the InterSystems Open Exchange contest. It covers the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md), where the full roadmap lives (§13).
 
-- **0.2, Analytical functions:** focused on proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): a notebook compatibility scanner, string, math, null and date functions, window functions, `F.expr`/`selectExpr`, `dropDuplicates`; then `createDataFrame`, writing tables, `unionByName`, semi and anti joins.
+- **0.2, Analytical functions:** focused on proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner (done), string, math, null and date functions, window functions, `F.expr`/`selectExpr`, `dropDuplicates`; then `createDataFrame`, writing tables, `unionByName`, semi and anti joins.
 - **0.3, Advanced execution:** regular expressions (IRIS SQL has none), **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
 - **1.0, Production readiness:** stable API, documented compatibility, robustness testing, observability, security, and CI on every supported Python version.
 

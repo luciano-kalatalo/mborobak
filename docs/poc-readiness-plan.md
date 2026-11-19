@@ -31,23 +31,23 @@ Script [`probes/function_probe.py`](../probes/function_probe.py), raw output [`p
 
 ## 3. Plan by tier
 
-### Tier 0: know what a client's code needs (do first)
+### Tier 0: know what a client's code needs (done)
 
-**Notebook compatibility scanner.** A small command-line tool: `mborobak-scan notebook.ipynb` (or `.py`) lists every PySpark call and function the code uses and marks each as supported, planned (with release), or not planned. Before a POC it tells us, from the client's real notebooks, what will work and what to build first. Size: small.
+**Notebook compatibility scanner** ([`src/mborobak/scan.py`](../src/mborobak/scan.py)). `mborobak-scan notebook.ipynb` (also Databricks `.py` exports, plain scripts and whole directories) lists every PySpark call the code makes and marks each as supported, planned (with its release), not scheduled, or out of scope, with where it occurs (`--details`) and as text, Markdown or JSON. It reads the code without running it. "Supported" is read from the installed Mborobak, so the scanner never claims more than the code provides; "planned" follows this plan. It classifies by name, not by type (it can't tell a DataFrame's `count()` from a list's), skipping calls on non-Spark modules, string literals and pandas variables, so its figures are an estimate to start a POC from. First results are in §5.
 
 ### Tier 1: release 0.2, the POC core
 
 | Item | Contents | IRIS notes | Size |
 |------|----------|-----------|------|
 | **Window functions** | `Window.partitionBy().orderBy()`, `rowsBetween`, `rangeBetween` (where IRIS supports it); `row_number`, `rank`, `dense_rank`, `percent_rank`, `ntile`, `lag`, `lead`, `first`, `last`; `sum`/`avg`/`min`/`max`/`count` over a window | All core functions probed OK; window results filtered through a subquery; `%EXACT` rules apply to string partition and order keys | Large |
-| **Null and conditional functions** | `coalesce`, `nullif`, `isnan`, `greatest`, `least`, `ifnull`/`nvl` | `isnan` via `x <> x` inside `CASE` (compiler spec §7.9) | Small |
+| **Null and conditional functions** | `coalesce`, `nullif`, `isnan`, `isnull`, `greatest`, `least`, `ifnull`/`nvl`; `fillna`/`na.fill` and `dropna`/`na.drop` | `isnan` via `x <> x` inside `CASE` (compiler spec §7.9); `fillna` is `COALESCE` per column, `dropna` a filter on `IS NOT NULL` | Small |
 | **String functions** | `upper`, `lower`, `trim`, `ltrim`, `rtrim`, `length`, `substring`, `concat`, `concat_ws`, `lpad`, `rpad`, `instr`, `locate`, `replace`, `initcap`, `reverse` | `length` → `CHAR_LENGTH`; `concat_ws` skips NULLs; collation: functions on `%EXACT` columns | Medium |
 | **Math functions** | `round`, `bround`, `abs`, `ceil`, `floor`, `pow`, `sqrt`, `exp`, `log`, `mod`/`pmod` | `round` direct; result types follow Spark; `log(0)`/`sqrt(-1)` raise in IRIS where Spark returns NaN (matrix FP-11) | Small |
 | **Date and time functions** | `current_date`, `current_timestamp`, `year` … `second`, `dayofweek`, `quarter`, `date_add`, `date_sub`, `datediff`, `add_months`, `months_between`, `last_day`, `to_date`, `to_timestamp`, `date_trunc`, `date_format` (common patterns) | `DATEADD` → cast to date; `DATEDIFF` argument order; `date_trunc` emulated; format-pattern translation; timestamp formatting to be probed | Medium |
 | **SQL-string expressions** | `F.expr(...)`, `df.selectExpr(...)`, `df.filter("x > 1")` | A parser for the subset of Spark SQL expressions that the functions above cover; compiles to the same expression nodes | Medium |
 | **`dropDuplicates(subset)`** | Keeps one row per key | `ROW_NUMBER() OVER (PARTITION BY …)` = 1, which the window work provides | Small |
 
-**Exit criterion for 0.2:** the scanner reports at least 80% of calls as supported on two or three representative client notebooks (or a public set of typical Databricks analytics notebooks), and every new function has a passing PySpark comparison row or a documented known difference.
+**Exit criterion for 0.2:** the scanner reports at least 80% of calls as supported, not counting out-of-scope calls (a POC rewrites `display()` and file reads anyway), on two or three representative client notebooks or, until there are some, on the public notebook set of §5; and every new function has a passing PySpark comparison row or a documented known difference.
 
 ### Tier 2: release 0.2.x, round out pipelines
 
@@ -73,3 +73,23 @@ Reading files and Delta tables (`spark.read`), Databricks-specific APIs (`displa
 4. Date and time functions (after a second, focused IRIS probe on formatting and truncation).
 5. SQL-string expressions and `dropDuplicates`.
 6. Release 0.2, then tier 2 as POCs ask for it.
+
+## 5. First scan: public Databricks notebooks (2026-11-19)
+
+No client notebooks were available yet, so the scanner ran on eight public notebooks from Databricks' own demo repository, [`databricks-demos/dbdemos-notebooks`](https://github.com/databricks-demos/dbdemos-notebooks): the silver and gold transformations of the retail customer-360 demo, the silver layer of the fraud-detection demo, feature engineering for credit decisioning, patient readmission (analysis and feature engineering), the MLOps quick-start feature engineering, and the gold layer of the streaming sessionization demo. They lean toward pipelines and machine learning more than a typical analytics POC would, so they are a demanding test. A synthetic analytics notebook in [`examples/notebooks/`](../examples/notebooks/) serves as the second sample.
+
+| Calls supported | dbdemos, all calls | dbdemos, without out-of-scope | Sample notebook, without out-of-scope |
+|-----------------|-------------------:|------------------------------:|--------------------------------------:|
+| Today (0.1) | 67% | 78% | 58% |
+| After 0.2 | 78% | 91% | 93% |
+| After 0.2.x | 80% | 93% | 96% |
+| After 0.3 | 85% | 98% | 99% |
+
+The dbdemos set has 197 PySpark calls. What it shows:
+
+- **The core already carries most of the code.** `col`, `alias`, `withColumn`, `spark.table`, `cast`, `join`, `when`/`otherwise` and `groupBy`/`agg` are 132 of the 197 calls.
+- **Planned 0.2 items, ranked by use:** `dropDuplicates` (5), `to_timestamp` (4), `fillna`/`na.fill` (4), `current_timestamp` (3), `datediff` (3), `initcap` (2), then windows, `first` and SQL-string filters. This confirms the order of §4, and it brought `fillna`/`dropna` into tier 1.
+- **`%sql` cells are common (7).** Spark SQL in notebooks matters more than tier 3 suggests. Many such cells are plain `SELECT … GROUP BY` that IRIS runs as is, so a POC can move them to `session.sql()` today. Translating the dialect stays in 0.3.
+- **Out of scope:** `display` (10), file and stream reads (10) and Lakeflow pipeline decorators (3) are 27 calls. They are platform code that a POC replaces, not analytics.
+
+With 0.2 as planned, both samples pass the 80% exit criterion (91% and 93%).

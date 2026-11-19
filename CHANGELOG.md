@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `mborobak-scan`: a notebook compatibility scanner. It lists the PySpark calls in `.ipynb` notebooks, Databricks `.py` exports and scripts, and marks each as supported, planned (with release), not scheduled, or out of scope. Output is text, Markdown or JSON.
+
 ## 0.1.0 (2026-11-18)
 
 First release, for the InterSystems Open Exchange contest.
