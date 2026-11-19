@@ -229,7 +229,7 @@ Values are converted to the column's schema type, never left as the driver retur
 
 ### 5.3 `toPandas()` types
 
-Following PySpark 4.3's default (Arrow off) conversion:
+Following PySpark 4.3's default conversion, which uses Arrow (`spark.sql.execution.arrow.pyspark.enabled` is `true` by default in PySpark 4.3, checked 2026-11-19). The integer, double, decimal and date rows below are verified against it by the differential suite (matrix RES-02); the boolean and timestamp rows are not yet:
 
 | Type | pandas dtype without NULLs | with NULLs |
 |------|----------------------------|------------|
@@ -407,5 +407,5 @@ They behave like PySpark's: equality by value, `simpleString()` (the names in §
 | # | Question | Needed for |
 |---|----------|------------|
 | A1 | ~~Default output name of a cast and of `when()`~~ **Resolved** by the differential run: as in §6.5 (matrix NAME-04) | — |
-| A2 | `toPandas()` with Arrow on is the default in some Spark 4 deployments; whether to offer an option matching it | §5.3 |
+| A2 | ~~Whether to offer an option matching `toPandas()` with Arrow on~~ **Resolved:** Arrow is on by default in PySpark 4.3 and §5.3 already matches its types for the tested columns. The speed of Arrow's columnar transfer is a roadmap item (scope §13, release 0.3) | — |
 | A3 | Whether `getOrCreate()` should warn when settings differ from the active session's instead of opening a new one silently | §3.1 |

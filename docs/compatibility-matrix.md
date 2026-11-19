@@ -185,8 +185,8 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | ID | Behavior | PySpark | IRIS driver | Mborobak | Status | Evidence |
 |----|----------|---------|-------------|----------|--------|----------|
 | RES-01 | Python value types | Per Spark type | `Decimal` for some `DOUBLE`s, `str` for dates | Converted to schema types | Emulated (API contract §5.2) | S§2.7 / doc |
-| RES-02 | `toPandas()` dtypes (Arrow off) | `int32`/`int64`, `float64` with NULLs, `object` for decimals and dates | — | Same table | Emulated (API contract §5.3) | — / diff |
-| RES-03 | `toPandas()` with Arrow on | Nullable types differ | — | Not offered | Open (API contract A2) | — |
+| RES-02 | `toPandas()` dtypes with PySpark's default conversion (Arrow on in 4.3) | `int32`/`int64`, `float64` with NULLs, `object` for decimals and dates | — | Same table | Emulated (API contract §5.3); booleans and timestamps not yet tested | — / diff |
+| RES-03 | `toPandas()` with Arrow turned off (`spark.sql.execution.arrow.pyspark.enabled=false`) | Not compared | — | Mborobak has one conversion, matching the default | Open: whether any type differs when Arrow is off; a Mborobak option is not planned | — |
 | RES-04 | `show()` format, NULL printed as `NULL` | Spark 4 format, including the blank line after a full table | — | Same text, byte for byte | Emulated | — / diff |
 | RES-05 | `Row` behavior (tuple, named fields, `asDict`) | — | — | Same | Same | — / doc |
 
