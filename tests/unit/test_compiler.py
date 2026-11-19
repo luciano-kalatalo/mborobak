@@ -58,7 +58,7 @@ def test_iris_semantics_has_no_exact(session):
 
 def test_group_key_is_exact_in_select_and_group_by(session):
     text, _ = sql(session.table("Sales").groupBy("status").agg(F.max("status").alias("m")))
-    assert text.startswith('SELECT %EXACT("status") AS "status", MAX(%EXACT("status")) AS "m"')
+    assert text.startswith('SELECT %EXACT("status") AS "status", SUBSTRING(MAX(%EXACT(\' \' || "status")), 2) AS "m"')
     assert text.endswith('GROUP BY %EXACT("status")')
 
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MATRIX = ROOT / "docs" / "compatibility-matrix.md"
-TESTS = ROOT / "tests" / "compat" / "test_matrix_rows.py"
+TESTS = [ROOT / "tests" / "compat" / "test_matrix_rows.py", ROOT / "tests" / "compat" / "test_functions.py"]
 
 _ROW = re.compile(r"^\| ([A-Z]+-\d+)(?: †)? \|(.*)$", re.M)
 # test_FP_04_05_09_x covers FP-04, FP-05, FP-09; test_CAST_01_to_05_x covers CAST-01 … CAST-05.
@@ -20,7 +20,7 @@ def matrix_rows() -> dict[str, str]:
 
 def tested_ids() -> set[str]:
     ids: set[str] = set()
-    for m in _TEST.finditer(TESTS.read_text()):
+    for m in _TEST.finditer("\n".join(t.read_text() for t in TESTS)):
         family, nums, upto = m.group(1), [int(n) for n in m.group(2).strip("_").split("_")], m.group(3)
         if upto:
             nums = list(range(nums[-1], int(upto) + 1)) + nums[:-1]

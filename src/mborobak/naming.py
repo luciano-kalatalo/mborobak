@@ -67,4 +67,8 @@ def expr_name(expr: E.Expr) -> str:
         return expr_name(expr.child)
     if isinstance(expr, E.Coalesce):
         return f"coalesce({', '.join(expr_name(v) for v in expr.values)})"
+    if isinstance(expr, E.Func):
+        from . import scalar
+
+        return scalar.name(expr, expr_name)
     raise TypeError(f"no name for {type(expr).__name__}")

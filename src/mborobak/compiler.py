@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from . import expressions as E
 from . import plan as P
+from . import scalar
 from .analyzer import infer
 from .errors import AnalysisError, PlanTooLargeError, UnsupportedOperationError
 from .sql.types import (
@@ -103,7 +104,7 @@ class Compiler:
     def needs_exact(self, expr: E.Expr) -> bool:
         if self.options.string_semantics != "pyspark":
             return False
-        if isinstance(expr, (E.Literal, E.Exact)):
+        if isinstance(expr, (E.Literal, E.Exact, E.TextOrder)):
             return False
         dtype, _ = infer(expr)
         if not isinstance(dtype, StringType):
@@ -118,6 +119,21 @@ class Compiler:
             return E.Exact(expr)
         return expr
 
+    def order_text(self, expr: E.Expr) -> E.Expr:
+        """A string in an ordering context (<, >, ORDER BY, MIN, MAX): Spark's code-point order (§7.1).
+        Applies to literals and EXACT columns too: their IRIS order puts numeric-looking strings first."""
+        if self.options.string_semantics != "pyspark":
+            return expr
+        dtype, _ = infer(expr)
+        if not isinstance(dtype, StringType):
+            return self.exact(expr)
+        if isinstance(expr, E.Exact):
+            expr = expr.child
+        note = "string order: %EXACT(' ' || x), so numeric-looking strings sort as text"
+        if note not in self.translations:
+            self.translations.append(note)
+        return E.TextOrder(expr)
+
     def _note_exact(self, expr: E.Expr) -> None:
         if isinstance(expr, E.AttrRef):
             note = f"collation: %EXACT on {expr.attr.name} (string, {expr.attr.collation or 'not EXACT'})"
@@ -131,6 +147,8 @@ class Compiler:
 
         def rule(e: E.Expr) -> E.Expr:  # children are already translated (bottom-up)
             if isinstance(e, E.Comparison):
+                if e.op in ("<", "<=", ">", ">="):
+                    return E.Comparison(e.op, self.order_text(e.left), self.order_text(e.right))
                 return E.Comparison(e.op, self.exact(e.left), self.exact(e.right))
             if isinstance(e, E.In):
                 return E.In(self.exact(e.child), e.values)
@@ -138,7 +156,10 @@ class Compiler:
                 return E.Like(self.exact(e.child), e.pattern)
             if isinstance(e, E.AggregateCall) and not isinstance(e.child, E.Star) \
                     and (e.function in ("min", "max") or e.distinct):
-                return E.AggregateCall(e.function, self.exact(e.child), e.distinct)
+                child = self.order_text(e.child) if e.function in ("min", "max") else self.exact(e.child)
+                return E.AggregateCall(e.function, child, e.distinct)
+            if isinstance(e, E.Func) and scalar.spec(e.name).exact_args:
+                return E.Func(e.name, tuple(self.exact(a) for a in e.args))  # NULLIF, GREATEST compare
             return e
 
         return E.transform(expr, rule)
@@ -621,7 +642,7 @@ class Renderer:
     def order_key(self, order: E.SortOrder, b: Block) -> str:
         key_plan = order.child
         dtype, _ = infer(key_plan)
-        key = self.c.substitute(self.c.exact(self.c.translate(key_plan)), b.env)
+        key = self.c.substitute(self.c.order_text(self.c.translate(key_plan)), b.env)
         direction = "" if order.ascending else " DESC"
         default_nulls = order.nulls_first is None or order.nulls_first == order.ascending
 
@@ -661,6 +682,8 @@ class Renderer:
             return self.lit(e)
         if isinstance(e, E.Exact):
             return f"%EXACT({self.value(e.child)})"
+        if isinstance(e, E.TextOrder):
+            return f"%EXACT(' ' || {self.value(e.child)})"
         if isinstance(e, E.BinaryArithmetic):
             if e.op == "%":
                 return f"MOD({self.value(e.left)}, {self.value(e.right)})"
@@ -678,10 +701,19 @@ class Renderer:
             parts = " ".join(f"WHEN {self.pred(c)} THEN {self.value(v)}" for c, v in e.branches)
             tail = f" ELSE {self.value(e.otherwise)}" if e.otherwise is not None else ""
             return f"CASE {parts}{tail} END"
+        if isinstance(e, E.Func):
+            s = scalar.spec(e.name)
+            if s.predicate:
+                p = s.render(self, e)
+                n = s.render(self, e)
+                return f"CASE WHEN {p} THEN 1 WHEN NOT ({n}) THEN 0 END"
+            return s.render(self, e)
         if isinstance(e, E.AggregateCall):
             fn = e.function.upper()
             if isinstance(e.child, E.Star):
                 return f"{fn}(*)"
+            if isinstance(e.child, E.TextOrder):  # MIN/MAX by code point, then drop the leading space
+                return f"SUBSTRING({fn}({self.value(e.child)}), 2)"
             return f"{fn}({'DISTINCT ' if e.distinct else ''}{self.value(e.child)})"
         if isinstance(e, _PREDICATES):
             # §7.8: booleans in the SELECT list become CASE; NULL stays NULL.
@@ -713,6 +745,8 @@ class Renderer:
             return f"{self.value(e.child)} LIKE {self.value(e.pattern)}"
         if isinstance(e, E.Literal) and e.value is None:
             return "1 = 0"
+        if isinstance(e, E.Func) and scalar.spec(e.name).predicate:
+            return scalar.spec(e.name).render(self, e)
         # A boolean value (BIT column, CASE, literal) used as a condition.
         return f"{self.value(e)} = 1"
 

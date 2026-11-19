@@ -1,6 +1,6 @@
 # API Contract
 
-Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.1 · 2026-11-18
+Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.2 · 2026-11-19
 
 Defines the public Python API of the P0 release: names, signatures, accepted arguments, return values, errors, and the number of queries each call may run. Implements [mborobak-scope.md](mborobak-scope.md) §5 and §7. How a plan becomes SQL is in the [compiler specification](compiler-spec.md) (control document 1); how results compare to PySpark is in the [compatibility matrix](compatibility-matrix.md) (control document 3).
 
@@ -140,6 +140,8 @@ All return a new `DataFrame`. Column arguments accept a column name (`str`) or a
 | `crossJoin(other)` | `DataFrame` | |
 | `groupBy(*cols)`, `groupby(...)` | columns | Returns `GroupedData` (§4.3) |
 | `agg(*exprs)` | aggregate `Column`s or a `dict` | Same as `groupBy().agg(...)` |
+| `fillna(value, subset=None)`, `na.fill(...)` | `value`: `int`, `float`, `str`, `bool`, or a `dict` of column name to value; `subset`: a name or a list | Replaces NULL, and NaN in double columns. Without a dict, a number fills numeric columns, a string string columns, a bool boolean columns; other columns are left as they are. The value is cast to each column's type, as in Spark (`1.7` fills an `int` column with 1). A dict value of the wrong kind raises `AnalysisError`. (0.2) |
+| `dropna(how="any", thresh=None, subset=None)`, `na.drop(...)` | `how`: `"any"` or `"all"`; `thresh`: `int` | Drops rows with NULL, or NaN in double columns, in the `subset` columns. `thresh` keeps rows with at least that many valid values and overrides `how`. (0.2) |
 
 ### 4.2 Join types
 
@@ -196,7 +198,7 @@ These may run a schema lookup but never a data query.
 
 Calling these raises `UnsupportedOperationError`, which names the release that adds them, instead of `AttributeError`:
 
-- P1: `unionByName`, `dropDuplicates`, `toLocalIterator`, `selectExpr`, `filter`/`where` with a string, semi and anti joins, `createDataFrame`, window functions, date and string functions, `write`.
+- P1: `unionByName`, `dropDuplicates`, `toLocalIterator`, `selectExpr`, `filter`/`where` with a string, semi and anti joins, `createDataFrame`, window functions, date functions, `write`. (Null, string and math functions, `fillna` and `dropna` arrived in 0.2, §6.4.)
 - Not planned: `cache`, `persist`, `unpersist`, `checkpoint`, `repartition`, `coalesce`, `rdd`, `foreach`, `mapInPandas`, `toArrow`, streaming, UDFs (P2).
 
 `cache()` and `persist()` raise rather than doing nothing, because a silent no-op would hide the fact that every action re-runs the query.
@@ -281,6 +283,7 @@ Python operator precedence applies: `F.col("a") > 1 & F.col("b") < 2` is a mista
 | `between(lower, upper)` | Inclusive |
 | `asc()`, `desc()`, `asc_nulls_first()`, `asc_nulls_last()`, `desc_nulls_first()`, `desc_nulls_last()` | Sort orders |
 | `when(cond, value)`, `otherwise(value)` | On a `when()` result only |
+| `substr(startPos, length)` | Integers (or `F.lit` integers); same as `F.substr` (0.2) |
 
 ### 6.4 Functions
 
@@ -294,7 +297,28 @@ Python operator precedence applies: `F.col("a") > 1 & F.col("b") < 2` is a mista
 | `sum(col)`, `avg(col)`, `mean(col)`, `min(col)`, `max(col)` | Types per compiler spec §3 |
 | `asc(name)`, `desc(name)`, and the `_nulls_` variants | Same as the `Column` methods |
 
-Accepting a column name where PySpark does (`F.sum("amount")`) works the same way.
+Release 0.2 adds null, string and math functions. Their IRIS SQL is in compiler spec §7.10 and their behavior next to PySpark's in the compatibility matrix §2.12.
+
+| Function | Notes |
+|----------|-------|
+| `coalesce(*cols)`, `ifnull(a, b)`, `nvl(a, b)`, `nvl2(a, b, c)`, `nullif(a, b)` | Result type: the wider argument type |
+| `isnan(col)`, `isnull(col)`, `isnotnull(col)` | `isnan` takes a number; NULL is not NaN |
+| `greatest(*cols)`, `least(*cols)` | At least two columns; NULLs skipped |
+| `upper`, `lower`, `trim`, `ltrim`, `rtrim`, `initcap`, `reverse` | A string column. `trim(col, trim)` with a trim string is not supported yet |
+| `length(col)`, `char_length(col)`, `character_length(col)` | Counts trailing spaces |
+| `substring(str, pos, len)`, `substr(str, pos, len=None)` | `pos` and `len` are integers (or `F.lit` integers); Spark's rules for 0 and negative positions |
+| `concat(*cols)`, `concat_ws(sep, *cols)` | Strings, integers, booleans, dates, timestamps. Double and decimal columns raise `UnsupportedOperationError` (their text differs, matrix CAST-12, CAST-13): format them first |
+| `lpad(col, len, pad)`, `rpad(...)` | `len` an integer, `pad` a string |
+| `instr(str, substr)`, `locate(substr, str, pos=1)` | `substr` a string; 1-based results, 0 when not found |
+| `replace(src, search, replace=None)` | Columns or names, as in PySpark: use `F.lit("x")` for a constant |
+| `repeat(col, n)` | `n` an integer |
+| `abs(col)` | Same type |
+| `round(col, scale=0)`, `bround(col, scale=0)` | Half up, half even. Integers stay integers, decimals get Spark's precision, doubles stay doubles |
+| `ceil(col)`, `ceiling(col)`, `floor(col)` | `bigint` for integers and doubles, `decimal(p-s+1,0)` for decimals. The `scale` argument is not supported yet |
+| `pow(a, b)`, `power(a, b)`, `sqrt`, `exp`, `ln`, `log(x)`, `log(base, x)`, `log10`, `log2`, `log1p`, `signum`, `sign` | `double`. Out-of-domain inputs give NaN, NULL or infinity as in Spark |
+| `pmod(dividend, divisor)` | Non-negative remainder; a zero divisor raises `MborobakArithmeticError` |
+
+Accepting a column name where PySpark does (`F.sum("amount")`) works the same way. Where PySpark takes a constant (`substring`'s position, `lpad`'s pad, `concat_ws`'s separator), a column there raises `TypeError`.
 
 ### 6.5 Output names
 

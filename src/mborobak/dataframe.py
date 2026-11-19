@@ -20,11 +20,21 @@ from .analyzer import (
     output_name,
     resolve,
 )
-from .column import Column, to_column_expr
+from .column import Column, literal, to_column_expr
 from .errors import AnalysisError, ColumnNotFoundError, UnsupportedOperationError, caller_location
 
 from .row import Row, make_rows
-from .sql.types import BooleanType, DecimalType, LongType, NullType, StructField, StructType
+from .sql.types import (
+    BooleanType,
+    DecimalType,
+    DoubleType,
+    IntegerType,
+    LongType,
+    NullType,
+    StringType,
+    StructField,
+    StructType,
+)
 
 if TYPE_CHECKING:
     from .session import MborobakSession
@@ -211,6 +221,83 @@ class DataFrame:
         if len(keep) == len(self._plan.output):
             return self
         return self._with(P.Project(self._plan, tuple((a, E.AttrRef(a)) for a in keep)))
+
+    # ---------------------------------------------------------------- missing values
+    def _subset(self, subset: Any, op: str) -> list[E.Attribute]:
+        if subset is None:
+            return list(self._plan.output)
+        names = [subset] if isinstance(subset, str) else list(subset)
+        if not all(isinstance(n, str) for n in names):
+            raise TypeError("subset takes a column name or a list of column names")
+        return [find_attr(n, self._plan.output, op) for n in names]
+
+    def fillna(self, value: Any, subset: Any = None) -> "DataFrame":
+        """Replace NULL (and NaN in double columns) with ``value`` in the columns whose type matches it:
+        a number fills numeric columns, a string fills string columns, a bool fills boolean columns.
+        A dict maps column names to values. As in Spark, the value is cast to each column's type."""
+        op = _op("fillna")
+        if isinstance(value, dict):
+            targets = {find_attr(k, self._plan.output, op).id: v for k, v in value.items()}
+        else:
+            targets = {a.id: value for a in self._subset(subset, op)}
+        items: list[tuple[E.Attribute, E.Expr]] = []
+        changed = False
+        for a in self._plan.output:
+            if a.id not in targets or not _fills(targets[a.id], a.dtype, isinstance(value, dict), op) \
+                    or (not a.nullable and not isinstance(a.dtype, DoubleType)):
+                items.append((a, E.AttrRef(a)))
+                continue
+            ref = E.AttrRef(a)
+            fill = E.Cast(literal(targets[a.id]), a.dtype)
+            if isinstance(a.dtype, DoubleType):  # Spark replaces NaN too
+                expr = E.CaseWhen(((E.Or(E.IsNull(ref), E.Func("isnan", (ref,))), fill),), ref)
+            else:
+                expr = E.Func("coalesce", (ref, fill))
+            infer(expr, op)
+            items.append((E.Attribute(E.new_id(), a.name, a.dtype, False), expr))
+            changed = True
+        return self._with(P.Project(self._plan, tuple(items))) if changed else self
+
+    def dropna(self, how: str = "any", thresh: int | None = None, subset: Any = None) -> "DataFrame":
+        """Drop rows with NULL (or NaN in double columns): ``how="any"`` drops a row with any, ``"all"``
+        a row with only such values; ``thresh`` keeps rows with at least that many valid values."""
+        op = _op("dropna")
+        if how not in ("any", "all"):
+            raise ValueError("how must be 'any' or 'all'")
+        attrs = self._subset(subset, op)
+        valid = []
+        always = 0  # columns that are never NULL or NaN
+        for a in attrs:
+            ref = E.AttrRef(a)
+            if not a.nullable and not isinstance(a.dtype, DoubleType):
+                always += 1
+                continue
+            cond: E.Expr = E.IsNull(ref, negated=True)
+            if isinstance(a.dtype, DoubleType):
+                cond = E.And(cond, E.Not(E.Func("isnan", (ref,))))
+            valid.append(cond)
+        if thresh is not None:
+            if not isinstance(thresh, int) or isinstance(thresh, bool):
+                raise TypeError("thresh takes an integer")
+            if always >= thresh:
+                return self
+            total: E.Expr = E.Literal(always, IntegerType())
+            for c in valid:
+                total = E.BinaryArithmetic("+", total, E.CaseWhen(((c, E.Literal(1, IntegerType())),),
+                                                                 E.Literal(0, IntegerType())))
+            condition: E.Expr = E.Comparison(">=", total, E.Literal(thresh, IntegerType()))
+        else:
+            if not valid or (how == "all" and always):
+                return self
+            condition = valid[0]
+            for c in valid[1:]:
+                condition = E.And(condition, c) if how == "any" else E.Or(condition, c)
+        infer(condition, op)
+        return self._with(P.Filter(self._plan, condition))
+
+    @property
+    def na(self) -> "DataFrameNaFunctions":
+        return DataFrameNaFunctions(self)
 
     def orderBy(self, *cols: Any, ascending: bool | list[bool] = True) -> "DataFrame":  # noqa: N802
         op = _op("orderBy")
@@ -527,6 +614,35 @@ class GroupedData:
 
     def max(self, *cols: str) -> DataFrame:  # noqa: A003
         return self._simple("max", cols)
+
+
+class DataFrameNaFunctions:
+    """``df.na``: ``fill`` and ``drop``, as ``fillna`` and ``dropna``."""
+
+    def __init__(self, df: DataFrame):
+        self._df = df
+
+    def fill(self, value: Any, subset: Any = None) -> DataFrame:
+        return self._df.fillna(value, subset)
+
+    def drop(self, how: str = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
+        return self._df.dropna(how, thresh, subset)
+
+
+def _fills(value: Any, dtype, explicit: bool, op: str) -> bool:
+    """Whether ``value`` fills a column of ``dtype``. Spark skips columns of another kind, except that a
+    dict names its columns: there a mismatch is an error."""
+    if isinstance(value, bool):
+        ok = isinstance(dtype, BooleanType)
+    elif isinstance(value, (int, float, decimal.Decimal)):
+        ok = dtype.is_numeric
+    elif isinstance(value, str):
+        ok = isinstance(dtype, StringType)
+    else:
+        raise TypeError(f"fillna() takes an int, float, string or bool value, got {type(value).__name__}")
+    if not ok and explicit:
+        raise AnalysisError(f"fillna(): cannot fill a {dtype.simpleString()} column with {value!r}", operation=op)
+    return ok
 
 
 def _rebuild(node: P.Plan, child: P.Plan) -> P.Plan:

@@ -36,6 +36,8 @@ IRIS is fast at SQL, and many data teams think in DataFrames. Mborobak gives the
 - **Strings compare case-sensitively,** as in Spark. IRIS's default collation treats `'PAID'` and `'paid'` as equal and returns grouped values uppercased. Mborobak adds `%EXACT` where it changes the result, reads each column's collation from the catalog to skip it where it isn't needed, and offers `mborobak.sql.stringSemantics = "iris"` for IRIS's rules.
 - **Spark's ANSI errors.** Division by zero, invalid casts (`'abc'` to `int`, which IRIS silently turns into `0`) and casting NaN to an integer raise clear Mborobak errors instead of returning wrong values.
 - **Spark's sort order for `DOUBLE`.** IRIS sorts −Infinity after the largest numbers and uses −1E19 internally as its NULL marker when sorting, so a stored −1E19 comes back as NULL. Mborobak restores Spark's order and values.
+- **Spark's string order.** With `%EXACT`, IRIS sorts strings that look like numbers as numbers (`'10'` after `'9'`); Mborobak compares and sorts them as text, as Spark does.
+- **Spark's results for edge cases in functions:** `round(0.285, 2)` is 0.29, `sqrt(-1)` is NaN, `log(0)` is NULL, `substring` with negative positions, `greatest` skipping NULLs, where IRIS's functions differ or fail.
 - **Spark's types and names:** `int / int` is a `double`, `sum(int)` is a `bigint`, decimal precision follows Spark's rules, and unaliased columns are named `sum(amount)`, `count(1)`, `(a + b)`.
 - **What IRIS SQL requires:** `TOP` instead of `LIMIT` in subqueries, `ORDER BY` only where IRIS allows it, `WITH` clauses moved to the front of the statement, no `GROUP BY` positions (IRIS reads `GROUP BY 1` as the constant 1), and NaN and infinity sent as parameters.
 
@@ -49,6 +51,8 @@ IRIS is fast at SQL, and many data teams think in DataFrames. Mborobak gives the
 | Aggregation | `groupBy().agg()`, `count`, `sum`, `avg`/`mean`, `min`, `max`, `countDistinct`; `agg({"x": "sum"})`; filters after `agg()` |
 | Union | `union`/`unionAll` by position, with Spark's numeric widening |
 | Expressions | arithmetic, comparisons, `&`, `\|`, `~`, `when().otherwise()`, `cast`, `isNull`, `isin`, `like`, `between`, `eqNullSafe`, sort orders with null placement |
+| Functions | null handling (`coalesce`, `nullif`, `nvl`, `nvl2`, `greatest`, `least`, `isnan`, `isnull`); strings (`upper`, `lower`, `trim`, `length`, `substring`, `concat`, `concat_ws`, `lpad`, `rpad`, `instr`, `locate`, `replace`, `initcap`, `reverse`, `repeat`); math (`round`, `bround`, `abs`, `ceil`, `floor`, `pow`, `sqrt`, `exp`, `log`, `log10`, `log2`, `log1p`, `signum`, `pmod`) |
+| Missing values | `fillna`/`na.fill`, `dropna`/`na.drop` |
 | Actions | `collect`, `show`, `count`, `take`, `first`, `head`, `toPandas` |
 | Inspection | `schema`, `columns`, `dtypes`, `printSchema`, `explain()`, `toSQL()`, per-action metrics in `session.lastExecution` |
 
@@ -193,7 +197,7 @@ They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md)
 
 Version 0.1, built for the InterSystems Open Exchange contest. It covers the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md), where the full roadmap lives (§13).
 
-- **0.2, Analytical functions:** focused on proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner (done), string, math, null and date functions, window functions, `F.expr`/`selectExpr`, `dropDuplicates`; then `createDataFrame`, writing tables, `unionByName`, semi and anti joins.
+- **0.2, Analytical functions:** focused on proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner and the null, string and math functions with `fillna`/`dropna` (done); date functions, window functions, `F.expr`/`selectExpr`, `dropDuplicates`; then `createDataFrame`, writing tables, `unionByName`, semi and anti joins.
 - **0.3, Advanced execution:** regular expressions (IRIS SQL has none), **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
 - **1.0, Production readiness:** stable API, documented compatibility, robustness testing, observability, security, and CI on every supported Python version.
 

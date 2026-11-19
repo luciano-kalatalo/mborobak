@@ -68,7 +68,7 @@ Reading files and Delta tables (`spark.read`), Databricks-specific APIs (`displa
 ## 4. Suggested order
 
 1. Tier 0 scanner, and run it on whatever client or sample notebooks are available, so the next steps follow real usage.
-2. Null, string and math functions (small and fast, high coverage gain).
+2. ~~Null, string and math functions~~ Done, with `fillna`/`dropna` (compiler spec §7.10, matrix §2.12). Building them uncovered a fix for 0.1: strings that look like numbers sorted as numbers (matrix STR-16).
 3. Window functions (largest single item).
 4. Date and time functions (after a second, focused IRIS probe on formatting and truncation).
 5. SQL-string expressions and `dropDuplicates`.
@@ -93,3 +93,5 @@ The dbdemos set has 197 PySpark calls. What it shows:
 - **Out of scope:** `display` (10), file and stream reads (10) and Lakeflow pipeline decorators (3) are 27 calls. They are platform code that a POC replaces, not analytics.
 
 With 0.2 as planned, both samples pass the 80% exit criterion (91% and 93%).
+
+After the null, string and math functions (step 2 of §4), in-scope coverage today is 79% on the dbdemos set (from 78%) and 67% on the sample notebook (from 58%). The dbdemos set gains little because what it still needs is mostly dates, `dropDuplicates` and windows, steps 3 to 5.

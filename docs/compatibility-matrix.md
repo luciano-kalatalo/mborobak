@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.3 · 2026-11-18
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.4 · 2026-11-19
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-e` | Scalar-function probe 2026-11-19 ([`probes/scalar_function_probe.py`](../probes/scalar_function_probe.py)), [compiler spec](compiler-spec.md) §12.3 |
 | `doc` | PySpark / Spark SQL documentation for 4.x. **Not yet run** |
 | `diff` | Confirmed by the differential test suite against PySpark 4.3 (§3) |
 | `—` | No evidence yet; the row is an expectation |
@@ -49,15 +50,16 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | STR-04 † | Join on string keys | Exact match | `'x'` joins `'X'` | `%EXACT` on both sides | Emulated (§7.1) | S§2.5, P-b / diff |
 | STR-05 † | `groupBy` a string column | One group per exact value, original values | Groups merged, values uppercased | `GROUP BY %EXACT(col)` and `%EXACT(col)` in output | Emulated (§7.1) | S§2.5, P-b / diff |
 | STR-06 † | `distinct()`, distinct `union` on strings | Exact values | Merged, uppercased | `%EXACT` in output | Emulated (§7.1) | S§2.5 / diff |
-| STR-07 † | `orderBy` a string column | Binary order (`'B' < 'a'`) | Case-insensitive order | `ORDER BY %EXACT(col)` | Emulated (§7.1) | P-b / diff |
-| STR-08 † | `min`, `max`, `countDistinct` on strings | Exact values | Uppercased / merged | `MIN(%EXACT(col))`, `COUNT(DISTINCT %EXACT(col))` | Emulated (§7.1) | S§2.5, P-b / diff |
+| STR-07 † | `orderBy` a string column | Binary order (`'B' < 'a'`) | Case-insensitive order | `ORDER BY %EXACT(' ' \|\| col)` (STR-16) | Emulated (§7.1) | P-b / diff |
+| STR-08 † | `min`, `max`, `countDistinct` on strings | Exact values | Uppercased / merged | `SUBSTRING(MIN(%EXACT(' ' \|\| col)), 2)` (STR-16), `COUNT(DISTINCT %EXACT(col))` | Emulated (§7.1) | S§2.5, P-b / diff |
 | STR-09 | Column declared `COLLATE %EXACT` | — | Already exact | No wrapper | Same | P-c |
 | STR-10 | Columns with other collations (`SQLSTRING`, `TRUNCATE(n)`) | — | Differ | `%EXACT` | Emulated (§6.4) | P-c |
 | STR-11 | Comparisons between literals or parameters | Exact | Exact | Passed through | Same | S§2.5 |
 | STR-12 | `''` vs NULL | Distinct | Distinct | Passed through | Same | S§2.6 / diff |
-| STR-13 | NULL in string concatenation | NULL | NULL | — (concat is P1) | Same | S§2.6 / doc |
+| STR-13 | NULL in string concatenation | NULL | NULL | `\|\|` passed through (`concat`, 0.2) | Same | S§2.6, P-e / diff |
 | STR-14 | `like` escape character | `\` by default | No default escape | P0 has no escape support | Known difference: patterns containing `\` differ. Escapes are P1 | — / doc |
 | STR-15 | Cost of `%EXACT` | — | Index still used, but equality filters on indexed strings read every candidate row: 3.3× slower count at 1M rows; no cost on grouping, joins, sorts | — | Measured ([benchmark](benchmark-report-2026-11-18.md) §3.2) | S§2.5 |
+| STR-16 † | Strings that look like numbers in `<`, `>`, `between`, `orderBy`, `min`/`max`, `greatest`/`least` (`'5'` vs `'12345'`, `'9'` vs `'10'`) | Code-point order: `'5' > '12345'`, `'9' > '10'` | With `%EXACT`, and in `EXACT` columns, canonical numbers compare and sort as numbers and before other strings: `'12345' > '5'` | `%EXACT(' ' \|\| x)` in ordering contexts, on both sides and on literals; equality, grouping and `distinct` keep `%EXACT(x)`. Release 0.1 ordered such strings as numbers | Emulated (spec §7.1) | P-e / diff |
 
 ### 2.2 NULL
 
@@ -127,7 +129,8 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | FP-08 | NaN or ±∞ as a literal (`F.lit(float("nan"))`) | Supported | Fails as SQL text; works as a parameter | Always a parameter | Emulated (spec §9.5) | S§2.7 / diff |
 | FP-09 | `DOUBLE` value `-1E19` in `orderBy` | Normal value | Returned as NULL; NULLs misplaced | Bucket key plus `d + 0` | Emulated (spec §7.9) | P-c / diff |
 | FP-10 | `DOUBLE` value `-1E19` in `groupBy`, `distinct`, `countDistinct` | Normal value | Merged with NULL | Passed through | Known difference (spec O7) | P-c / diff |
-| FP-11 | Functions returning NaN or ∞ in Spark (`log(0)`, `sqrt(-1)`) | NaN / -∞ | Error -400 `<ILLEGAL VALUE>` | Not in P0 (math functions are P1) | Unsupported in P0 | S§2.7, P-c / doc |
+| FP-11 | Functions returning NaN, NULL or ∞ in Spark (`sqrt(-1)`, `log(0)`, `pow(0, -1)`, `exp(1000)`) | NaN, NULL, ∞ | Fatal error -400 | Out-of-domain inputs routed before the IRIS function (spec §7.10) | Emulated (spec §7.10) | S§2.7, P-e / diff |
+| FP-12 | `+∞` plus `-∞` (`sum`, `avg`, `+` of both infinities) | NaN | Fatal error -400 `<ILLEGAL VALUE>` | `MborobakArithmeticError` | Known difference: emulating it would need a check per row in every sum | P-e / diff |
 
 ### 2.6 Ordering and limits
 
@@ -202,6 +205,39 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | API-06 | Implicit cross join (`join` without `on`) | Allowed (Spark 3+) | Allowed | Same | API contract §4.1 |
 | API-07 | Unsupported column types (streams, `%List`, binary) | — | `UnsupportedTypeError` on use | Unsupported | Compiler spec §3 |
 
+### 2.12 Scalar functions and missing values (release 0.2)
+
+Null, string and math functions, and `fillna`/`dropna`. The dataset `funcs` (§3.2) holds empty strings, NULLs, NaN, ±∞, `1E300`, `-1E-300`, `.5` ties and strings that look like numbers. The default column names and result types are PySpark's and are checked by the same tests.
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| FUN-01 | `coalesce`, `ifnull`, `nvl`, `nvl2` | Wider type of the arguments | `COALESCE` needs one type; 2-argument `IFNULL` returns NULL when the first value is not NULL | `COALESCE` with arguments cast to the wider type; `nvl2` as `CASE` | Emulated (spec §7.10) | P-e / diff |
+| FUN-02 † | `nullif` on strings | Case-sensitive | Compares with the column's collation: `NULLIF('Hello', 'HELLO')` is NULL | `%EXACT` on both arguments; NaN equals NaN for doubles | Emulated (§7.10) | P-e / diff |
+| FUN-03 | `greatest`, `least` with NULLs | NULLs skipped; NULL only if all are | NULL if any argument is NULL | Each argument replaced by the first non-NULL of the arguments | Emulated (§7.10) | P-e / diff |
+| FUN-04 | `isnan`, `isnull`, `isnotnull` | `isnan(NULL)` is false | `x <> x` finds NaN inside `CASE` only, never in `WHERE` | `CASE WHEN x <> x THEN 1 ELSE 0 END = 1` | Emulated (§7.10) | P-e / diff |
+| FUN-05 | `upper`, `lower`, `trim`, `ltrim`, `rtrim`, `initcap`, `reverse`, `repeat` | `trim` removes spaces only | Same; `REPEAT` of a count ≤ 0 differs | Direct; `repeat(s, 0)` is `''` | Emulated (§7.10) | P-e / diff |
+| FUN-06 | `length`, `char_length` with trailing spaces | Counted | `LENGTH` ignores them; `CHAR_LENGTH` counts them | `CHAR_LENGTH` | Emulated (§7.10) | P-e / diff |
+| FUN-07 | `substring`/`substr` with position 0, negative positions, lengths past the end | 0 counts as 1; negative counts from the end, clipped | `SUBSTRING('Hello', -3, 2)` is `''`; position 0 shortens the result | Spark's window computed with `CHAR_LENGTH` | Emulated (§7.10) | P-e / diff |
+| FUN-08 | `concat` (NULL in, NULL out) and `concat_ws` (NULLs skipped, never NULL) | As stated | `\|\|` returns NULL for a NULL part; `CONCAT` takes two arguments | `\|\|`; `concat_ws` from `COALESCE(sep \|\| x, '')` parts. Double and decimal arguments are refused (CAST-12, CAST-13) | Emulated (§7.10) | P-e / diff |
+| FUN-09 | `lpad`, `rpad`: truncation, empty pad, length ≤ 0 | Truncates; empty pad only truncates; `''` for length ≤ 0 | Truncates; empty pad inserts NUL characters; NULL for length < 0 | `LPAD`/`RPAD`, with `SUBSTRING` for an empty pad and `''` for length ≤ 0 | Emulated (§7.10) | P-e / diff |
+| FUN-10 | `instr`, `locate` (empty substring, start before 1) | Empty substring found at 1; `pos < 1` gives 0 | `INSTR('abc', '')` is 0 | `INSTR`, with Spark's results for those cases | Emulated (§7.10) | P-e / diff |
+| FUN-11 | `replace` with an empty search string | Source unchanged | `REPLACE('', '', 'x')` is `'x'` | Source returned | Emulated (§7.10) | P-e / diff |
+| FUN-12 | `round` on decimals and integers | Half up; Spark's result type | `ROUND` half up | `ROUND`, cast to Spark's type | Same | P-e / diff |
+| FUN-13 | `round` on doubles (`round(0.285, 2)`, NaN, ±∞, `1E300`) | Rounds the shortest decimal form: 0.29; NaN and ±∞ unchanged | Rounds the 20-digit binary expansion: 0.28; NaN, ±∞ and values past `1E145` fail | Rounds to 15 significant digits first; NaN, ±∞ and values above 2⁵³ returned as they are | Emulated (§7.10) | P-e / diff |
+| FUN-14 | `bround` (half to even) | Half even | No half-even rounding | Half-even test on the scaled value with `TRUNCATE` | Emulated (§7.10) | P-e / diff |
+| FUN-15 | `ceil`, `floor`: types, NaN, ±∞ | `bigint` for doubles; NaN → 0; ±∞ and values beyond `bigint` fail (ANSI); `decimal(p-s+1,0)` for decimals | Returns a double | Spark's types; NaN → 0; overflow raises `MborobakArithmeticError` | Emulated (§7.10) | P-e / diff |
+| FUN-16 | `pow`, `sqrt`, `exp`, `log`, `ln`, `log10`, `log2`, `log1p`, `log(base, x)` out of domain | NaN, NULL or ∞ | Fatal errors; no `LN`, `LOG2`; `NaN <= 0` is true | Guards before the IRIS function (NaN first); `log1p` by series for small values | Emulated (§7.10) | P-e / diff |
+| FUN-17 | `abs`, `signum`, `sign` | `signum` is a double; `signum(NaN)` is NaN | `SIGN` returns an integer; `SIGN(NaN)` is NULL | Cast to double; NaN passed through | Emulated (§7.10) | P-e / diff |
+| FUN-18 | `pmod` | Non-negative result; division by zero fails | `MOD` has the dividend's sign | `CASE` on `MOD`; zero divisor raises `MborobakArithmeticError` | Emulated (§7.10) | P-e / diff |
+| FUN-19 † | Functions in filters, `groupBy` keys, sort keys and aggregates | — | Function results compare with their own collation | Same rules as columns (§7.1) | Emulated (§7.1) | P-e / diff |
+| FUN-20 | `fillna`/`na.fill` | Fills NULL and NaN in the columns of the value's kind; the value is cast to the column's type | — | `COALESCE`, or `CASE` for doubles | Emulated (API contract §4.1) | diff |
+| FUN-21 | `dropna`/`na.drop` (`any`, `all`, `thresh`, NaN) | NaN counts as missing | — | `WHERE` on `IS NOT NULL` and the NaN test | Emulated (API contract §4.1) | diff |
+| FUN-22 | `initcap` after a tab or other non-space separator | Only a space starts a word: `'tab\there'` → `'Tab\there'` | `INITCAP` capitalizes after any whitespace | Passed through | Known difference | P-e / diff |
+| FUN-23 | `upper`/`lower` of letters whose case form is longer (`'ß'` → `'SS'`) | Java's full case mapping | One character per character (`'ß'` stays) | Passed through | Known difference | P-e / doc |
+| FUN-24 | `pow` overflow (`pow(10.0, 400.0)`) | Infinity | Fatal error | `MborobakArithmeticError` | Known difference (as NUM-04) | P-e / diff |
+| FUN-25 | Integer overflow in `abs(-2147483648)`, `round(i, -1)` near the maximum | Error (ANSI) | Larger value returned | Passed through | Known difference (as NUM-04) | P-e / diff |
+| FUN-26 | `round`/`bround` of doubles whose shortest form has 16 or 17 digits | Rounds that form | — | Rounds the 15-digit form, which can differ at a `.5` tie | Known difference | P-e / doc |
+
 ## 3. Differential test suite
 
 ### 3.1 How a row is verified
@@ -229,6 +265,7 @@ Each section of §2 has a small targeted dataset (scope §8.2):
 | `join_keys` | Keys with NULLs, duplicates, unmatched rows on both sides, mixed-case strings |
 | `times` | Dates and timestamps with microseconds, around midnight and month ends |
 | `sales_small` | The scope §5.3 example: a few hundred rows with skew (scope §8.3) |
+| `funcs` | Strings with empty values, spaces, a tab, accents and numeric-looking text; doubles with NaN, ±∞, `1E300`, `-1E-300` and `.5` ties; decimals around rounding ties; integers and longs with NULLs (§2.12) |
 
 ### 3.3 Keeping the matrix and tests in step
 
@@ -243,6 +280,8 @@ For the README and the docs site, the P0 known differences fit in one short list
 - `max` ignores NaN (FP-06).
 - The `DOUBLE` value `-1E19` groups together with NULL (FP-10).
 - `like` has no escape character (STR-14).
+- Adding `+∞` and `-∞` raises an error instead of giving NaN (FP-12); `pow` overflow raises an error instead of giving infinity (FUN-24); integer overflow in `abs` and `round` is not detected (FUN-25).
+- `initcap` also starts words after tabs (FUN-22); `upper('ß')` stays `'ß'` (FUN-23).
 - Casting `double` and `decimal` values to string gives IRIS's text, not Spark's (CAST-12, CAST-13).
 - `union` is stricter about mixing types (UNI-03).
 - Timestamps have no time zone (TIME-01).

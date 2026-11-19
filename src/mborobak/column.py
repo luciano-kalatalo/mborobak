@@ -146,6 +146,11 @@ class Column:
     def between(self, lowerBound: Any, upperBound: Any) -> "Column":  # noqa: N803
         return (self >= lowerBound) & (self <= upperBound)
 
+    def substr(self, startPos: Any, length: Any) -> "Column":  # noqa: N803
+        from .sql.functions import substr
+
+        return substr(Column(self._expr), startPos, length)
+
     # ---------------------------------------------------------------- naming, types
     def alias(self, alias: str) -> "Column":
         if not isinstance(alias, str) or not alias:

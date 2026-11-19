@@ -176,6 +176,19 @@ class CaseWhen(Expr):
 
 
 @dataclass(frozen=True)
+class Func(Expr):
+    """A scalar function call (``upper``, ``round`` …). Typing, naming and SQL come from the registry in
+    ``scalar.py``; ``name`` is the registry key. Constant arguments (a scale, a pad string) stay
+    ``Literal`` arguments so the default column name shows them, as Spark's does."""
+
+    name: str
+    args: tuple[Expr, ...]
+
+    def children(self):
+        return self.args
+
+
+@dataclass(frozen=True)
 class Coalesce(Expr):
     """Internal: the key of a full outer join on column names (compiler spec §6.3)."""
 
@@ -222,6 +235,18 @@ class SqlCol(Expr):
 
 @dataclass(frozen=True)
 class Exact(Expr):
+    child: Expr
+
+    def children(self):
+        return (self.child,)
+
+
+@dataclass(frozen=True)
+class TextOrder(Expr):
+    """A string compared or sorted by code point, as Spark does (compiler spec §7.1): ``%EXACT(' ' || x)``.
+    With ``%EXACT`` alone IRIS orders strings that look like numbers as numbers ('10' > '9'); the
+    leading space makes every value a plain string."""
+
     child: Expr
 
     def children(self):

@@ -150,6 +150,8 @@ def resolve(expr: E.Expr, plan: Plan, operation: str | None, allow_star: bool = 
                               go(e.otherwise) if e.otherwise is not None else None)
         if isinstance(e, E.SortOrder):
             return E.SortOrder(go(e.child), e.ascending, e.nulls_first)
+        if isinstance(e, E.Func):
+            return E.Func(e.name, tuple(go(a) for a in e.args))
         raise UnsupportedOperationError(f"unsupported expression {type(e).__name__}", operation=operation)
 
     resolved = go(expr)
@@ -244,7 +246,7 @@ def infer(expr: E.Expr, operation: str | None = None) -> tuple[DataType, bool]:
         return expr.attr.dtype, expr.attr.nullable
     if isinstance(expr, E.SqlCol):  # compiler-level expressions
         return expr.dtype or NullType(), True
-    if isinstance(expr, E.Exact):
+    if isinstance(expr, (E.Exact, E.TextOrder)):
         return infer(expr.child, operation)
     if isinstance(expr, E.Literal):
         return expr.dtype, expr.value is None
@@ -374,6 +376,10 @@ def infer(expr: E.Expr, operation: str | None = None) -> tuple[DataType, bool]:
             result = wider(result, t) or result
             nullable = nullable and n
         return result, nullable
+    if isinstance(expr, E.Func):
+        from . import scalar
+
+        return scalar.infer(expr, operation)
     if isinstance(expr, E.Star):
         raise AnalysisError("'*' is not an expression here", operation=operation)
     raise UnsupportedOperationError(f"cannot type {type(expr).__name__}", operation=operation)

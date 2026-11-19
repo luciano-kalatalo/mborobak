@@ -274,6 +274,8 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         if name.startswith("join(how="):
             return PLANNED, "0.2.x", "semi and anti joins"
         if name in ("na.fill", "na.drop"):
+            if {"fillna", "dropna"} <= supported[METHOD]:
+                return SUPPORTED, None, None
             return PLANNED, "0.2", None
         if name in _NA_METHODS:
             return NOT_SCHEDULED, None, None

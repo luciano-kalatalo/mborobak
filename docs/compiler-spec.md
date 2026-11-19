@@ -1,6 +1,6 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.4 · 2026-11-18
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.5 · 2026-11-19
 
 Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
@@ -95,8 +95,9 @@ All expression nodes are immutable dataclasses. Every expression knows its child
 | `CaseWhen` | `branches[(cond, value)]`, `otherwise` | `when()` without `otherwise()` means `ELSE NULL` |
 | `AggregateCall` | `function`, `args`, `distinct` | `count`, `sum`, `avg`, `min`, `max`, `countDistinct` |
 | `SortOrder` | `child`, `direction`, `nulls` | Default nulls: first for ascending, last for descending (Spark default) |
+| `Func` | `name`, `args` | A scalar function (§7.10). Typing, default name and SQL come from a registry keyed by `name`. Constant arguments (a scale, a pad string) stay `Literal` arguments so the default name shows them |
 
-**Internal nodes added by required translations (§7),** never created by users: `Exact(child)` (renders `%EXACT(...)`), `CastGuard`, `NullOrderKey`, `DoubleSortKey`. (Draft 0.1 also had `DivisionGuard`; §7.5 explains why it was removed.)
+**Internal nodes added by required translations (§7),** never created by users: `Exact(child)` (renders `%EXACT(...)`), `TextOrder(child)` (renders `%EXACT(' ' || ...)`, §7.1), `CastGuard`, `NullOrderKey`, `DoubleSortKey`. (Draft 0.1 also had `DivisionGuard`; §7.5 explains why it was removed.)
 
 ## 5. Plan nodes
 
@@ -183,15 +184,20 @@ When the session setting `string_semantics` is `"pyspark"` (the default), any st
 
 | Position | Rendered as |
 |----------|-------------|
-| Comparison, `IN`, `LIKE`, `BETWEEN` operands | `%EXACT(col) = ?` |
+| `=`, `<>`, `IN`, `LIKE` operands | `%EXACT(col) = ?` |
+| `<`, `<=`, `>`, `>=` and `BETWEEN` operands | `%EXACT(' ' \|\| col) > %EXACT(' ' \|\| ?)` (see below) |
 | Join conditions on strings | `%EXACT(a.k) = %EXACT(b.k)` |
 | Grouping keys | `GROUP BY %EXACT(col)`, and the matching output column `%EXACT(col) AS "col"`, so original values come back |
 | `DISTINCT` and `UNION` (distinct) | Each string output column projected as `%EXACT(col)` |
-| `Sort` keys | `ORDER BY %EXACT(col)` |
-| `min`, `max` on strings | `MIN(%EXACT(col))` |
+| `Sort` keys | `ORDER BY %EXACT(' ' \|\| col)` |
+| `min`, `max` on strings | `SUBSTRING(MIN(%EXACT(' ' \|\| col)), 2)` |
+| `greatest`, `least` on strings | `SUBSTRING(GREATEST(%EXACT(' ' \|\| …), …), 2)` (§7.10) |
+| `nullif` on strings | `NULLIF(%EXACT(a), %EXACT(b))` (§7.10) |
 | `countDistinct` on strings | `COUNT(DISTINCT %EXACT(col))` |
 
-All forms verified **(probe 2026-11-18b)**. With `string_semantics="iris"`, no wrapping happens and the compatibility matrix lists the differences. String literals and parameters are never wrapped (they compare exactly already, study §2.5).
+All forms verified **(probe 2026-11-18b)**. With `string_semantics="iris"`, no wrapping happens and the compatibility matrix lists the differences. In equality, string literals and parameters are never wrapped (they compare exactly already, study §2.5).
+
+**Order of strings that look like numbers** (draft 0.5, probe 2026-11-19, §12.3). With `%EXACT`, and in columns declared `EXACT`, IRIS orders canonical numbers numerically and before all other strings: `'12345' > '5'`, `'10' > '9'`. Spark compares strings by code point: `'5' > '12345'`. Where order matters (`<`, `<=`, `>`, `>=`, `between`, sort keys, `min`/`max`, `greatest`/`least`), each side, literals included, becomes `TextOrder(x)`: `%EXACT(' ' || x)`. The leading space makes every value a plain string, and `%EXACT` keeps case and trailing spaces. `min`/`max` and `greatest`/`least` strip the space with `SUBSTRING(…, 2)`; NULL stays NULL. Equality, `IN`, grouping and `DISTINCT` are not affected (`'10'` and `'10.0'` stay different values) and keep `%EXACT(x)`. Release 0.1 used `%EXACT(x)` everywhere and ordered such strings as numbers (matrix STR-16).
 
 ### 7.2 Ordering placement
 
@@ -288,6 +294,45 @@ ORDER BY CASE WHEN d IS NULL THEN 0
 Verified ascending and descending on 14 values including NULL, ±0, ±1E19, ±1E300, ±∞ and NaN **(probe 2026-11-18c)**. `NUMERIC` and integer sorts are not affected.
 
 **Grouping and distinct are a known difference in P0:** a `-1E19` in a grouping key or `DISTINCT` column merges with NULL. A fix needs a key that keeps the two apart without changing the output value; it is open (§13, O7).
+
+### 7.10 Scalar functions (release 0.2)
+
+Each `Func` has a registry entry (`src/mborobak/scalar.py`) with three parts: a typer (Spark's result type, checked against PySpark 4.3), a namer (PySpark's default column name, e.g. `CEIL(d)`, `ln(d)`, `POWER(i, 2)`, `round(n, 0)`), and a renderer. Arguments of the wrong kind raise `AnalysisError` at the call, as other type errors do (`upper()` of an `int` needs an explicit cast). A renderer renders an argument again at each use, building the text left to right, so the parameters of a repeated argument stay in text order (§9.5). Integer constants that shape the SQL (a scale, a position, a pad length) are written inline; string and numeric values are parameters.
+
+The rules below come from the 2026-11-19 probe (§12.3). Each is checked against PySpark by the compatibility matrix rows FUN-01 to FUN-21.
+
+| Function | IRIS SQL | Why |
+|----------|----------|-----|
+| `coalesce`, `ifnull`, `nvl` | `COALESCE(…)`, every argument cast to the wider type | IRIS rejects mixed types; its 2-argument `IFNULL(a, b)` returns NULL when `a` is not NULL |
+| `nvl2` | `CASE WHEN a IS NOT NULL THEN b ELSE c END` | |
+| `nullif` | `NULLIF(a, b)` with `%EXACT` on strings (§7.1); for doubles a `CASE` where NaN equals NaN | `NULLIF` compares with the column's collation |
+| `greatest`, `least` | `GREATEST(COALESCE(a, b, …), COALESCE(b, a, …), …)`; strings by `TextOrder` | IRIS returns NULL if any argument is NULL; Spark skips NULLs. The first non-NULL of the arguments is one of them, so the result is unchanged |
+| `isnan` | `CASE WHEN x <> x THEN 1 ELSE 0 END = 1`; `1 = 0` for non-doubles | `x <> x` finds NaN only inside `CASE` (§7.9) |
+| `isnull`, `isnotnull` | `IsNull` node | |
+| `length`, `char_length` | `CHAR_LENGTH(x)` | `LENGTH` ignores trailing spaces |
+| `upper`, `lower`, `trim`, `ltrim`, `rtrim`, `initcap`, `reverse` | Same-named function | `TRIM` removes spaces only, as Spark |
+| `substring`, `substr`, `Column.substr` | `SUBSTRING(s, pos, len)` for `pos ≥ 1`; position 0 as 1; a negative position from `CHAR_LENGTH(s)`, clipped as Spark's `substringSQL`; `''` for `len ≤ 0`; no length past IRIS's longest string | IRIS returns `''` for negative positions and for lengths past its string limit |
+| `concat` | `a \|\| b \|\| …`; integers, booleans, dates and timestamps cast to text | Double and decimal arguments raise `UnsupportedOperationError`: their text differs (matrix CAST-12, CAST-13) |
+| `concat_ws` | `SUBSTRING(COALESCE(sep \|\| a, '') \|\| COALESCE(sep \|\| b, '') …, len(sep) + 1)` | Spark skips NULLs and never returns NULL |
+| `lpad`, `rpad` | `LPAD`/`RPAD`; `SUBSTRING(s, 1, n)` for an empty pad; `''` for `n ≤ 0` | IRIS pads with NUL characters for an empty pad |
+| `instr`, `locate` | `INSTR(s, sub[, pos])`; an empty `sub` gives 1; `pos < 1` gives 0 | `INSTR('abc', '')` is 0 in IRIS. `INSTR` and `REPLACE` are case-sensitive on any collation |
+| `replace` | `REPLACE`; an empty search returns the source | `REPLACE('', '', 'x')` is `'x'` in IRIS |
+| `repeat` | `REPEAT`; `''` for a count ≤ 0 | |
+| `abs` | `ABS` | |
+| `round` on decimals and integers | `CAST(ROUND(x, s) AS <Spark's type>)` | Half up in both |
+| `round` on doubles | `CASE` returning `x` for NULL, NaN, ±∞ and `\|x\| ≥ 2⁵³`; `0.0` below `1E-100`; else `CAST(ROUND(ROUND(x, 15 - FLOOR(LOG10(ABS(x)))), s) AS DOUBLE)` | Spark rounds the shortest decimal form (`0.285` → 0.29); IRIS rounds the 20-digit expansion (0.28) and fails on NaN, ±∞ and beyond `1E145`. The inner round recovers the shortest form for every double with at most 15 significant digits |
+| `bround` | Half even: `CASE WHEN ABS(v·10ˢ − TRUNCATE(v·10ˢ, 0)) = 0.5 AND MOD(TRUNCATE(v·10ˢ, 0), 2) = 0 THEN TRUNCATE(v, s) ELSE ROUND(v, s) END`, with `v` as above for doubles | IRIS has no half-even rounding |
+| `ceil`, `ceiling`, `floor` | Decimals: `CAST(CEILING(x) AS NUMERIC(p-s+1,0))`; integers: `CAST(x AS BIGINT)`; doubles: NaN → 0, a result beyond `bigint` reaches the `EXP(100000)` trigger of §7.7, else `CAST(CEILING(x) AS BIGINT)` | Spark (ANSI) fails on ±∞ and overflow, returns 0 for NaN |
+| `pow`, `power` | Doubles; `+∞` for `0^negative`, NaN for a negative base and a fractional exponent, else `POWER` | `POWER` fails on both |
+| `sqrt` | NaN for `x < 0`, else `SQRT` | `SQRT(-1)` fails |
+| `exp` | `+∞` above `709.782712893384`, else `EXP` | Overflow fails |
+| `ln`, `log`, `log10`, `log2`, `log1p`, `log(b, x)` | NaN passed through first; NULL for `x ≤ 0` (`x ≤ -1` for `log1p`); `LOG(x) / LOG(2)` for `log2`, as Spark computes it; `log1p` by its series below `1E-4` | `LOG(0)` fails; there is no `LN` or `LOG2`; IRIS evaluates `NaN <= 0` as true; `LOG(1 + x)` loses tiny `x` |
+| `signum`, `sign` | `CAST(SIGN(x) AS DOUBLE)`, NaN passed through | `SIGN` returns an integer and NULL for NaN |
+| `pmod` | `CASE WHEN MOD(a, n) < 0 THEN MOD(MOD(a, n) + n, n) ELSE MOD(a, n) END`, typed as `%` | Spark's definition; a zero divisor fails as `%` does |
+
+NaN and ±∞ results are parameters (§9.5). Function results are strings or numbers like any expression, so §7.1 applies to them in comparisons, keys and sorts.
+
+**`fillna` and `dropna`** compile to a `Project` and a `Filter` of ordinary expressions: `COALESCE(x, CAST(v AS type))`, or for doubles `CASE WHEN x IS NULL OR isnan(x) THEN v ELSE x END`; and conditions on `IS NOT NULL` and `NOT isnan(x)`, combined by `how` or counted against `thresh`. Columns that can't be NULL are left out (API contract §4.1).
 
 ## 8. Optional rewrites
 
@@ -502,6 +547,35 @@ Script [`probes/compiler_followup_probe.py`](../probes/compiler_followup_probe.p
 | §7.9 | `ORDER BY d` on `DOUBLE` | `-1E19` returned as NULL; NULLs sort at `-1E19`; `-Infinity` sorts after finite values |
 | §7.9 | Bucket key plus `d + 0` | Spark order ascending and descending, values intact |
 | §7.9 | `GROUP BY d`, `GROUP BY d + 0`, `DISTINCT d`, `COUNT(DISTINCT d)` | `-1E19` merges with NULL |
+
+### 12.3 Probe 2026-11-19: scalar functions
+
+Script [`probes/scalar_function_probe.py`](../probes/scalar_function_probe.py), raw output [`probes/results-2026-11-19-scalar-functions-iris-2026.2.json`](../probes/results-2026-11-19-scalar-functions-iris-2026.2.json), IRIS 2026.2, a table with a default (SQLUPPER) and an `EXACT` string column. Later checks made while running the differential tests are marked †.
+
+| Check | Result |
+|-------|--------|
+| `''` in results of `SUBSTRING`, `TRIM`, `REPLACE`, `UPPER`, `CASE`, parameters | Empty string, never NULL |
+| `TRIM` of tabs; `UPPER('straße')`, `UPPER('ß')` | Tabs kept; `'STRAßE'`, `'ß'` (no full case mapping) |
+| `INSTR`, `REPLACE`, `POSITION` on a SQLUPPER column | Case-sensitive |
+| `NULLIF(s, 'HELLO WORLD')` on `'Hello World'` | NULL: compares with the column's collation |
+| `GREATEST(1, NULL, 3)`, `LEAST(…)` | NULL; mixed types need explicit casts |
+| 2-argument `IFNULL(a, b)` | `b` when `a` is NULL, else NULL |
+| `INSTR('abc', '')`, `REPLACE('', '', 'x')`, `REPLACE('abc', '', 'x')` | 0, `'x'` †, `'abc'` |
+| `SUBSTRING('Hello', -3, 2)`, `(…, 0, 2)`, `SUBSTRING('abcdef', 3, 2147483647)` | `''`, `'H'`, `''` † |
+| `LPAD('abcdef', 3, '*')`, `LPAD('ab', 5, '')`, `LPAD('ab', -1, 'x')` | `'abc'`, NUL characters, NULL |
+| `INITCAP('hello-world foo_bar  baz\tqux')` | `'Hello-world Foo_bar  Baz\tQux'` (word starts after a tab) |
+| `CONCAT('a', 'b', 'c')`; `LN`, `LOG2` | Syntax error; not found |
+| `ROUND(2.5)`, `ROUND(-2.5)`, `ROUND(0.125, 2)` on `NUMERIC` | 3, −3, 0.13 (half up) |
+| `ROUND(d, 2)` of `DOUBLE` 0.285; `CAST(0.285 AS VARCHAR)` | 0.28; `.28499999999999997557` |
+| `ROUND` of NaN, ±∞, `1E300` | Fatal error -400 |
+| `CEILING`, `FLOOR`, `ABS` of NaN, ±∞ | NaN, ±∞ |
+| `POWER(-8, 0.5)`, `POWER(0, -1)`, `POWER(10.0, 400)`, `SQRT(-1)`, `EXP(1000)`, `LOG(0)`, `LOG(-1)` | Fatal error -400 for each |
+| `LOG(NaN)`, `EXP(NaN)`, `SQRT(NaN)`; `CASE WHEN NaN <= 0` † | NaN; true |
+| `SIGN(NaN)`, `SIGN(2.5)` | NULL, 1 (integer) |
+| `WHERE d <> d`, `WHERE (d IS NOT NULL AND d <> d)` on NaN † | No rows (as §7.9); `CASE WHEN d <> d THEN 1 ELSE 0 END = 1` finds it |
+| `+∞ + −∞`, `SUM`/`AVG` over both † | Fatal error -400 `<ILLEGAL VALUE>` |
+| `%EXACT(s) > %EXACT(t)` for `'12345'`/`'5'`, `'10'`/`'9'`; `ORDER BY %EXACT(s)` † | Numeric order, numbers first |
+| `%EXACT(' ' \|\| s)` in the same comparisons, sorts, `MIN`/`MAX` † | Code-point order, as Spark |
 
 ## 13. Open questions
 

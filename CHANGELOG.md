@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Null, string and math functions: `coalesce`, `ifnull`, `nvl`, `nvl2`, `nullif`, `isnan`, `isnull`, `isnotnull`, `greatest`, `least`; `upper`, `lower`, `trim`, `ltrim`, `rtrim`, `initcap`, `reverse`, `repeat`, `length`, `char_length`, `substring`, `substr` (also `Column.substr`), `concat`, `concat_ws`, `lpad`, `rpad`, `instr`, `locate`, `replace`; `abs`, `round`, `bround`, `ceil`, `ceiling`, `floor`, `pow`, `power`, `sqrt`, `exp`, `ln`, `log`, `log10`, `log2`, `log1p`, `signum`, `sign`, `pmod`. Each has PySpark's result type and default name, and Spark's results where IRIS's functions differ or fail (compiler spec §7.10, compatibility matrix §2.12).
+- `fillna`/`na.fill` and `dropna`/`na.drop`, including NaN in double columns.
+- **Fix:** strings that look like numbers (`'10'`, `'9'`) now compare, sort and aggregate (`min`, `max`) as text, as in Spark. With `%EXACT`, IRIS ordered them as numbers (matrix STR-16).
+- New known differences, each with a strict test: adding `+∞` and `-∞` raises an error (FP-12), `pow` overflow raises an error (FUN-24), integer overflow in `abs`/`round` is not detected (FUN-25), `initcap` starts words after tabs (FUN-22).
 - `mborobak-scan`: a notebook compatibility scanner. It lists the PySpark calls in `.ipynb` notebooks, Databricks `.py` exports and scripts, and marks each as supported, planned (with release), not scheduled, or out of scope. Output is text, Markdown or JSON.
 
 ## 0.1.0 (2026-11-18)
