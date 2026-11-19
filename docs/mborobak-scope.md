@@ -1,4 +1,4 @@
-SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.8 · 2026-11-18
+SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.9 · 2026-11-19
 
 # Mborobak
 
@@ -19,6 +19,7 @@ Scope document covering functionality, architecture, implementation and validati
 | 1.6     | 2026-11-18 | Project renamed from **Fluxora** to **Mborobak** (API names follow, e.g. `MborobakSession`). D8 reopened for the new name. |
 | 1.7     | 2026-11-18 | Added the InterSystems contest requirements (§1.1). D1 changed to the required IRIS build (2026.3.0AI.154.0, AI Hub Community image). |
 | 1.8     | 2026-11-18 | §6.8 aligned with compiler spec draft 0.2: divisions need no guard (IRIS's error names the cause); new `DOUBLE` sorting rule for IRIS's `-1E19` NULL marker. |
+| 1.9     | 2026-11-19 | D1 changed back: IRIS 2026.2 (build 221U) for development, testing and submission; build 154 will not be used. §1.1 item 6 marked as a known deviation from the contest rules. |
 
 ---
 
@@ -41,7 +42,7 @@ Mborobak will be submitted to an InterSystems Open Exchange contest. Its require
 3. **Open source on GitHub or GitLab.** Published under the MIT license (D6).
 4. **README in English,** with installation steps and either a video demo or a description of how the library works.
 5. **At most 3 submissions** per developer or team.
-6. **Required IRIS build:** 2026.3.0AI build 154, the AI Hub Community Docker image from the InterSystems Early Access Program portal (not build 162). Files: `iris_arm64-community-2026.3.0AI.154.0-docker.tar.gz` (ARM64, including Apple Silicon) or `iris-community-2026.3.0AI.154.0-docker.tar.gz` (x64). The download requires the developer's own portal login.
+6. **Required IRIS build:** 2026.3.0AI build 154, the AI Hub Community Docker image from the InterSystems Early Access Program portal (not build 162). **Known deviation (decided 2026-11-19, D1):** Mborobak is developed, tested and submitted on IRIS 2026.2 (build 221U); build 154 will not be used. The organizers may treat this as not meeting the requirement. Files: `iris_arm64-community-2026.3.0AI.154.0-docker.tar.gz` (ARM64, including Apple Silicon) or `iris-community-2026.3.0AI.154.0-docker.tar.gz` (x64). The download requires the developer's own portal login.
 
 ## 2. References and positioning
 
@@ -347,7 +348,7 @@ The strategy is to give InterSystems IRIS an experience comparable to what Snowp
 
 | # | Decision | Proposal |
 | - | -------- | -------- |
-| D1 | IRIS version | **Decided (changed for the contest, §1.1):** InterSystems IRIS 2026.3.0AI build 154, AI Hub Community image, for testing and submission. Until that image is downloaded, development continues on the local IRIS 2026.2 container; the behavior study and the test suite are re-run on build 154 before submission |
+| D1 | IRIS version | **Decided (2026-11-19):** InterSystems IRIS 2026.2 (build 221U) for development, testing and submission. All measurements (behavior study, probes, test suites, benchmark) are on this build. The contest's required build 154 (§1.1) will not be used; this is an accepted deviation |
 | D2 | Supported Python versions | **Decided:** Python 3.11 and newer (3.10 reached end of life in October 2026), tested in CI |
 | D3 | Driver | **Decided:** official `intersystems-irispython` DB-API driver, version 5.4 or later |
 | D4 | `union()` semantics | **Decided:** same as PySpark (`UNION ALL` by position); explicit `distinct()` to deduplicate |

@@ -1,14 +1,12 @@
 # IRIS for the demo and the test suites.
 #
-# The InterSystems contest requires IRIS 2026.3.0AI build 154, the AI Hub Community image from the
-# Early Access Program portal (download it with your own login). Load it once and point IRIS_IMAGE at
-# the name that `docker load` prints:
+# Mborobak is developed and tested on IRIS 2026.2 (build 221U) and needs 2026.2 or later. Point
+# IRIS_IMAGE at an IRIS Community image you have pulled or loaded:
 #
-#   docker load -i iris_arm64-community-2026.3.0AI.154.0-docker.tar.gz     # x64: iris-community-...
-#   export IRIS_IMAGE=<the image name printed above>
+#   export IRIS_IMAGE=<an IRIS 2026.2+ community image>
 #   docker compose up -d
 #
-# Any other IRIS image (2026.2 or later) works the same way. See the README for the first-login step.
+# See the README for the first-login step.
 services:
   iris:
     image: ${IRIS_IMAGE:?set IRIS_IMAGE to the IRIS image to run (see the README)}

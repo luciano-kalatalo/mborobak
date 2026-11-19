@@ -72,11 +72,10 @@ python3.11 -m venv .venv
 
 ## Running IRIS
 
-Any IRIS 2026.2 or later works. The contest build is **IRIS 2026.3.0AI build 154** (AI Hub Community image, from the InterSystems Early Access Program portal). Load it once and start it with the included `docker-compose.yml`:
+Mborobak is developed and tested on **IRIS 2026.2** (build 221U); it needs IRIS 2026.2 or later. To run IRIS locally with the included `docker-compose.yml`, point `IRIS_IMAGE` at an IRIS Community image you have pulled or loaded, then start it:
 
 ```bash
-docker load -i iris_arm64-community-2026.3.0AI.154.0-docker.tar.gz    # x64: iris-community-2026.3.0AI.154.0-docker.tar.gz
-export IRIS_IMAGE=<the image name that docker load printed>
+export IRIS_IMAGE=<an IRIS 2026.2+ community image>
 docker compose up -d
 ```
 

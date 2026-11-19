@@ -195,7 +195,7 @@ Add every row of the tables in §2.5 and §2.6 as a known difference or emulated
 
 ## 4. Still open
 
-- **Re-run on IRIS 2026.3.0AI build 154** (AI Hub Community image), the build required by the contest and now the D1 target. This first pass used build 2026.2.0.221.0.
+- ~~**Re-run on IRIS 2026.3.0AI build 154**~~ Withdrawn: D1 keeps IRIS 2026.2 (build 2026.2.0.221.0), the build this study used (scope 1.9).
 - How IRIS compares, groups and sorts **NaN**, and whether **−0.0 and 0.0 group together**.
 - Where to read a column's **collation** from the catalog (`INFORMATION_SCHEMA.COLUMNS.COLLATION_NAME` was NULL).
 - In which IRIS version **`LIMIT`/`OFFSET`** appeared (affects D1).

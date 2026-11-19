@@ -260,7 +260,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 | M4 | ~~Confirm Spark's handling of full-width digits~~ Done: Spark rejects them | CAST-06 |
 | M5 | ~~Confirm generated names for casts and `when()`~~ Done | NAME-03, NAME-04 |
 | M8 | Write differential tests for the rows still marked `doc` | §2 |
-| M6 | Re-check all IRIS evidence on build 154 (spec O6) | All |
+| M6 | ~~Re-check all IRIS evidence on build 154~~ Withdrawn: all evidence is on IRIS 2026.2, the D1 build (scope 1.9) | — |
 
 ## 6. Probe 2026-11-18d
 
