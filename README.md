@@ -170,9 +170,13 @@ They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md)
 .venv/bin/pytest tests/compat        # against IRIS and PySpark 4.3 (pip install -e ".[compat]", Java 17+)
 ```
 
-## Status
+## Status and roadmap
 
-Version 0.1, built for the InterSystems Open Exchange contest. It covers the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md). Planned next: window functions, date and string functions, `createDataFrame`, semi and anti joins, and named `sql()` parameters.
+Version 0.1, built for the InterSystems Open Exchange contest. It covers the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md), where the full roadmap lives (§13).
+
+- **0.2, Analytical functions:** window functions, date and string functions, `unionByName`, semi and anti joins, `createDataFrame`, writing tables, `dropDuplicates`, `selectExpr`, named `sql()` parameters.
+- **0.3, Advanced execution:** **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
+- **1.0, Production readiness:** stable API, documented compatibility, robustness testing, observability, security, and CI on every supported Python version.
 
 ## License
 
