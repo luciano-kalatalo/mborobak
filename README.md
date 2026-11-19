@@ -174,8 +174,8 @@ They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md)
 
 Version 0.1, built for the InterSystems Open Exchange contest. It covers the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md), where the full roadmap lives (§13).
 
-- **0.2, Analytical functions:** window functions, date and string functions, `unionByName`, semi and anti joins, `createDataFrame`, writing tables, `dropDuplicates`, `selectExpr`, named `sql()` parameters.
-- **0.3, Advanced execution:** **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
+- **0.2, Analytical functions:** focused on proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): a notebook compatibility scanner, string, math, null and date functions, window functions, `F.expr`/`selectExpr`, `dropDuplicates`; then `createDataFrame`, writing tables, `unionByName`, semi and anti joins.
+- **0.3, Advanced execution:** regular expressions (IRIS SQL has none), **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
 - **1.0, Production readiness:** stable API, documented compatibility, robustness testing, observability, security, and CI on every supported Python version.
 
 ## License

@@ -1,4 +1,4 @@
-SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.10 · 2026-11-19
+SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.11 · 2026-11-19
 
 # Mborobak
 
@@ -21,6 +21,7 @@ Scope document covering functionality, architecture, implementation and validati
 | 1.8     | 2026-11-18 | §6.8 aligned with compiler spec draft 0.2: divisions need no guard (IRIS's error names the cause); new `DOUBLE` sorting rule for IRIS's `-1E19` NULL marker. |
 | 1.9     | 2026-11-19 | D1 changed back: IRIS 2026.2 (build 221U) for development, testing and submission; build 154 will not be used. §1.1 item 6 marked as a known deviation from the contest rules. |
 | 1.10    | 2026-11-19 | Release 0.3 gains a concrete item: columnar (Arrow-style) result transfer, after the benchmark showed per-row conversion dominates large results (§13). |
+| 1.11    | 2026-11-19 | Release 0.2 reordered for proofs of concept with Databricks users, following the [POC readiness plan](poc-readiness-plan.md): notebook scanner, column functions, window functions, SQL-string expressions first (§13). |
 
 ---
 
@@ -331,10 +332,17 @@ There is also no generic multi-database layer in the MVP. The architecture must 
 
 **Release 0.1: DataFrame Core.** Declarative API, lazy evaluation, analyzer, SQL compiler, IRIS execution, diagnostics and P0 benchmark.
 
-**Release 0.2: Analytical Functions.** Window functions, date/string functions, `unionByName`, semi/anti joins, `createDataFrame`, table writes and planner improvements.
+**Release 0.2: Analytical Functions (POC readiness).** Ordered by what PySpark users on Databricks reach for first ([POC readiness plan](poc-readiness-plan.md)):
+
+1. A notebook compatibility scanner, to measure a client's code against what Mborobak supports.
+2. Null, string and math functions; window functions; date and time functions; SQL-string expressions (`F.expr`, `selectExpr`, `filter("…")`); `dropDuplicates`.
+3. Then `createDataFrame`, table writes, `unionByName`, semi/anti joins, named `sql()` parameters and planner improvements.
+
+Exit criterion: at least 80% of the calls in representative Databricks notebooks supported, each new function with a PySpark comparison row.
 
 **Release 0.3: Advanced Execution.** Research and prototypes for UDF/UDAF, vectorized execution, external storage and parallelism, and:
 
+- **Regular expressions** (`rlike`, `regexp_replace`, `regexp_extract`): IRIS SQL has no regex functions, so they need an opt-in server-side function or a translation of simple patterns (POC readiness plan, tier 3).
 - **Columnar (Arrow-style) result transfer.** Today the IRIS driver returns rows, and every value becomes a Python object before pandas copies it again. At 1M rows of four columns this costs about 1.7 s, against 0.85 s for the raw driver ([benchmark report](benchmark-report-2026-11-18.md) §5). PySpark's Arrow path cut the same kind of transfer from about 20 s to 0.7 s in published tests, because whole columns arrive as typed memory blocks that pandas uses with little or no copying. The goal is a columnar path for `toPandas()` (and an Arrow result for other tools such as Polars and DuckDB). Candidate routes, to be evaluated in this order:
   1. Check whether the IRIS Python driver can return results in a columnar or Arrow form; if so, use it.
   2. An opt-in server-side component (Embedded Python) that runs the query next to the data and returns Arrow batches. Because the library must not install server-side code by itself (§7), administrators would enable it explicitly.
