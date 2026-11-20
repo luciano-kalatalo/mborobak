@@ -336,7 +336,8 @@ class MborobakSession:
         rows, server_ms, fetch_ms = self._executor.run(stmt.text, stmt.params, operation, candidates)
         t2 = time.perf_counter()
         try:
-            converted = convert_columns(rows, stmt.schema) if as_columns else convert_rows(rows, stmt.schema)
+            converted = convert_columns(rows, stmt.schema, stmt.plain) if as_columns else \
+                convert_rows(rows, stmt.schema, stmt.plain)
         except ConversionError as exc:
             from .errors import MborobakArithmeticError
 

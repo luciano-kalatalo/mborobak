@@ -59,7 +59,7 @@ Script [`probes/function_probe.py`](../probes/function_probe.py), raw output [`p
 
 - ~~**Regular expressions** (`rlike`, `regexp_replace`, `regexp_extract`). IRIS SQL has no regex functions.~~ Done: `CREATE FUNCTION … LANGUAGE OBJECTSCRIPT` with ICU's `$LOCATE` and `%Regex.Matcher`, created on first use (decided 2026-11-20, with `session.installFunctions()` for administrators), plus `regexp_count`, `regexp_substr`, `regexp_instr` (compiler spec §7.16, matrix §2.18).
 - ~~**Spark SQL in `session.sql()`:** translating Spark's SQL dialect to IRIS SQL, beyond the expression subset of tier 1.~~ Done: `sql()` parses Spark SQL `SELECT` statements into DataFrame operations, the default dialect since 0.3 (`mborobak.sql.dialect = "iris"` keeps IRIS SQL; compiler spec §7.17, matrix §2.19); `%sql` cells run as `spark.sql("…")`.
-- **Columnar result transfer** (already on the 0.3 roadmap).
+- ~~**Columnar result transfer** (already on the 0.3 roadmap).~~ Not possible on IRIS 2026.2 (no columnar driver API, no Arrow in IRIS, IRIS iterates no faster than the driver delivers); instead Mborobak's overhead over the driver was cut from 29% to 13% (compiler spec §9.9, §12.9).
 
 ### Out of reach for Mborobak, to state up front in POCs
 

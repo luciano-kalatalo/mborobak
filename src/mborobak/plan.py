@@ -312,3 +312,23 @@ def tree_string(plan: Plan) -> str:
 
     visit(plan, 0)
     return "\n".join(lines)
+
+
+def table_columns(plan: Plan) -> set[int]:
+    """Ids of output columns that are stored table columns passed through unchanged (no expression, no
+    aggregate, no union). The driver returns their values in the column's own type and scale, so result
+    conversion can skip them (compiler spec §9.9)."""
+    if isinstance(plan, TableScan):
+        return {a.id for a in plan.attrs}
+    if isinstance(plan, Project):
+        child = table_columns(plan.child)
+        return {a.id for a, e in plan.items if isinstance(e, E.AttrRef) and e.attr.id in child
+                and e.attr.dtype == a.dtype}
+    if isinstance(plan, (Filter, Sort, Limit, Distinct, SubqueryAlias)):
+        return table_columns(plan.child)
+    if isinstance(plan, Join):
+        out = table_columns(plan.left)
+        if plan.join_type not in ("semi", "anti"):
+            out |= table_columns(plan.right)
+        return out
+    return set()

@@ -353,6 +353,8 @@ Exit criterion: at least 80% of the calls in representative Databricks notebooks
 
   Success measure: `toPandas()` on 1M rows close to the raw driver's time or better, with the same values and types as today.
 
+  **Outcome (2026-11-20):** none of the three routes is possible on IRIS 2026.2. The driver has no columnar or Arrow API; IRIS iterates a query no faster than the driver delivers it (1.9 s for 1M rows in ObjectScript, 5.6 s for a pandas frame in embedded Python); there is no `pyarrow` in IRIS for Arrow or Parquet (compiler spec §12.9). The driver's per-value Python objects are the floor. Instead, 0.3 cut Mborobak's own overhead: `toPandas()` on 1M rows is now 13% over the driver plus pandas (was 29%), with the same values and types (compiler spec §9.9). A real columnar path needs a columnar driver API or Arrow in IRIS; to revisit when either exists.
+
 **Release 1.0: Production Readiness.** Stable API, documented compatibility, robustness testing, observability, security and an operations guide.
 
 ## 14. Expected outcome

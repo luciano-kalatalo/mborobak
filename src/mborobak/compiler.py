@@ -53,6 +53,7 @@ class SqlStatement:
     fingerprint: str
     cte: str = ""  # the WITH clause at the front of ``text`` (from sql() sources); INSERT goes after it
     functions: frozenset = frozenset()  # Mborobak's IRIS SQL functions the text calls (§7.16)
+    plain: tuple = ()  # per output column: a stored table column passed through (§9.9)
 
     @property
     def body(self) -> str:
@@ -536,8 +537,10 @@ class Compiler:
                 f"the query needs {len(renderer.params)} parameters; the limit is "
                 f"{self.options.max_parameters} (IRIS fails near 999). Shorten long isin() lists.")
         fingerprint = hashlib.sha256(text.encode()).hexdigest()[:16]
+        stored = P.table_columns(plan)
         return SqlStatement(text, renderer.params, schema, list(self.translations), fingerprint,
-                            self.ctes[0][0] if self.ctes else "", frozenset(self.functions))
+                            self.ctes[0][0] if self.ctes else "", frozenset(self.functions),
+                            tuple(a.id in stored for a in plan.output))
 
 
 # --------------------------------------------------------------------------- constant casts

@@ -600,6 +600,18 @@ Columns are nullable, as in tables Spark creates. Before anything runs, the writ
 
 `session.stop()` drops the session's temporary tables; so does an `atexit` hook, for scripts that never call `stop()`. Dropping a definition another connection still uses would empty that connection's table, so Mborobak only ever drops its own.
 
+### 9.9 Result transfer (release 0.3)
+
+The 0.3 plan was a columnar (Arrow-style) path for `toPandas()` (scope §13). Probe 2026-11-20 (§12.9) found none of its routes possible on IRIS 2026.2: the driver (`intersystems-irispython` 5.4) has only DB-API row fetches; IRIS itself iterates a 1M-row query no faster than the driver delivers it (1.9 s in ObjectScript, 5.6 s to build a pandas frame in embedded Python, which also turns `NUMERIC` into floats); and there is no `pyarrow` inside IRIS for an Arrow or Parquet export. The driver, which builds one Python object per value, is the floor: 1.7 s for 1M rows of six columns, of which a `NUMERIC` column alone costs 1.0 s.
+
+So 0.3 cuts what Mborobak adds on top of the driver instead:
+
+- **Plain columns.** `SqlStatement.plain` marks output columns that are stored table columns passed through unchanged (`plan.table_columns`: through `Project` references, `Filter`, `Sort`, `Limit`, `Distinct`, aliases and joins; not expressions, aggregates or unions). For those, a `NUMERIC(p,s)` column whose values are all `Decimal` skips re-rounding to scale `s`: the driver returns stored values at the column's scale (`1.50`, `-0.10`). Whole values come back as `int` (`20`), so a column holding any of them is converted as before.
+- **pandas columns.** `int`, `bigint` and `double` columns without NULLs are built with `numpy.fromiter`, four times faster than `pd.Series(list)`.
+- **Fetching** reads batches of 1,000 rows (`fetchmany`), about 10% faster than `fetchall()`.
+
+On the probe's 1M rows, `toPandas()` went from 29% over the driver plus `pandas.DataFrame.from_records` (3.0 s against 2.3 s) to 13% over it (2.5 s against 2.2 s), with the same values and types. What remains is the split of rows into columns (0.2 s) and the type checks of computed columns.
+
 ## 10. `explain()`
 
 `df.explain()` prints, without running anything:
@@ -876,6 +888,20 @@ Script [`probes/regex_probe.py`](../probes/regex_probe.py), raw output [`probes/
 | Invalid pattern `(` | SQLCODE -149, `<REGULAR EXPRESSION>` in the message |
 | `WHERE NOT (f(s) = 1)` with `f(NULL)` NULL; the same inside `CASE WHEN 1 = 0 THEN NULL ELSE … END` | NULL row kept; NULL row dropped |
 | 100,000 rows: a new `%Regex.Matcher` per row, a cached matcher, `$LOCATE`, `LIKE` | 0.90 s, 0.06 s, 0.06 s, 0.05 s |
+
+### 12.9 Probe 2026-11-20: result transfer
+
+Script [`probes/transfer_probe.py`](../probes/transfer_probe.py), raw output [`probes/results-2026-11-20-transfer-iris-2026.2.json`](../probes/results-2026-11-20-transfer-iris-2026.2.json), IRIS 2026.2, driver 5.4.1, 1M rows of the benchmark's `Orders` (int, int, varchar, numeric, double, date), best of three.
+
+| Check | Result |
+|-------|--------|
+| Driver API | DB-API only: `execute`, `fetchone`, `fetchmany`, `fetchall`, `direct_execute`; nothing columnar or Arrow, in Python or in the compiled module |
+| `fetchall()`; `fetchmany(1000)`, `(10000)`, `(100000)` | 1.73 s; 1.56 s, 1.63 s, 1.80 s |
+| One column alone: int, varchar, numeric, double, date | 0.77 s, 0.61 s, 0.98 s, 0.59 s, 0.69 s |
+| Driver + `pandas.DataFrame.from_records` | 2.20 s |
+| ObjectScript `%SQL.Statement` iterating the query (no values read) | 1.89 s |
+| Embedded Python: `numpy`, `pyarrow`, `pandas`; `iris.sql.exec(q).dataframe()` | 2.5.4, missing, 3.1.1; 5.6 s, `amount` as `float64` |
+| Mborobak `toPandas()`, `collect()` (with §9.9) | 2.48 s, 2.60 s (before: 3.0 s, 3.5 s) |
 
 ## 13. Open questions
 

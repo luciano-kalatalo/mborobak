@@ -203,7 +203,7 @@ Version 0.2.2. Release 0.1 was built for the InterSystems Open Exchange contest 
 
 - **0.2, Analytical functions (released):** for proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner; null, string, math, date and time functions; `fillna`/`dropna`; window functions and `dropDuplicates`; `F.expr`/`selectExpr`/`filter("…")`.
 - **0.2.x, Pipelines:** writing tables (`saveAsTable`, `insertInto`, released in 0.2.1); semi and anti joins, `unionByName`, `spark.read.table`, named `sql()` parameters and `createDataFrame` (released in 0.2.2).
-- **0.3, Advanced execution:** regular expressions (done, through ICU-regex SQL functions in IRIS), Spark SQL statements in `sql()` (done), **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
+- **0.3, Advanced execution:** regular expressions (done, through ICU-regex SQL functions in IRIS), Spark SQL statements in `sql()` (done), faster results (done: `toPandas()` within about 13% of the raw driver; a columnar Arrow path is not possible with today's IRIS driver, see compiler spec §9.9); research on server-side UDFs, vectorized execution and parallelism.
 - **1.0, Production readiness:** stable API, documented compatibility, robustness testing, observability, security, and CI on every supported Python version.
 
 ## License

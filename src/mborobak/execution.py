@@ -220,12 +220,12 @@ def _column_converter(t: DataType, types: set[type]):
     return None
 
 
-def convert_columns(rows, schema: StructType) -> list[list]:
+def convert_columns(rows, schema: StructType, plain: tuple = ()) -> list[list]:
     """Rows from the driver → one list per column, each value converted to its schema type."""
-    return _convert(rows, schema)[0]
+    return _convert(rows, schema, plain)[0]
 
 
-def _convert(rows, schema: StructType) -> tuple[list[list], bool]:
+def _convert(rows, schema: StructType, plain: tuple = ()) -> tuple[list[list], bool]:
     """(columns, whether any value changed). Columns are pulled with C-level itemgetter maps, which is
     far cheaper than transposing with zip(*rows) on large results."""
     if not rows:
@@ -235,6 +235,8 @@ def _convert(rows, schema: StructType) -> tuple[list[list], bool]:
     for i, field in enumerate(schema.fields):
         col = columns[i]
         types = set(map(type, col))
+        if plain and plain[i] and isinstance(field.dataType, DecimalType) and types <= {decimal.Decimal, type(None)}:
+            continue  # a stored NUMERIC(p,s) column: the driver already returns scale s (§9.9)
         fn = _column_converter(field.dataType, types)
         if fn is None:
             continue
@@ -252,13 +254,27 @@ def _convert(rows, schema: StructType) -> tuple[list[list], bool]:
     return columns, changed
 
 
-def convert_rows(rows, schema: StructType) -> list:
+def convert_rows(rows, schema: StructType, plain: tuple = ()) -> list:
     """Rows from the driver → rows whose values have the schema's types (compiler spec §3).
     The driver's rows are returned as they are when every value already has its type."""
     if not rows:
         return []
-    columns, changed = _convert(rows, schema)
+    columns, changed = _convert(rows, schema, plain)
     return list(zip(*columns)) if changed else rows
+
+
+_FETCH_BATCH = 1000
+
+
+def _fetch(cur) -> list:
+    """All rows, in batches: fetchmany(1000) was about 10% faster than fetchall() on 1M rows (probe 2026-11-20,
+    compiler spec §12.9)."""
+    rows: list = []
+    while True:
+        batch = cur.fetchmany(_FETCH_BATCH)
+        if not batch:
+            return rows
+        rows.extend(batch)
 
 
 class Executor:
@@ -312,7 +328,7 @@ class Executor:
                 cur.execute(sql, params)
                 self.counter.data_queries += 1
                 t1 = time.perf_counter()
-                rows = cur.fetchall()
+                rows = _fetch(cur)
             except ValueError as exc:  # the driver could not read a value (for example 'inf' as an int)
                 raise MborobakArithmeticError(f"IRIS returned a value that doesn't fit its column type: {exc}",
                                               operation=operation, sql=sql) from exc
