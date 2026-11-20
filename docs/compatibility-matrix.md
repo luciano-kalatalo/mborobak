@@ -134,7 +134,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | FP-07 | `min` with NaN present | Ignores NaN (NaN is largest) | Ignores NaN | Passed through | Same | P-c / diff |
 | FP-08 | NaN or ±∞ as a literal (`F.lit(float("nan"))`) | Supported | Fails as SQL text; works as a parameter | Always a parameter | Emulated (spec §9.5) | S§2.7 / diff |
 | FP-09 | `DOUBLE` value `-1E19` in `orderBy` | Normal value | Returned as NULL; NULLs misplaced | Bucket key plus `d + 0` | Emulated (spec §7.9) | P-c / diff |
-| FP-10 | `DOUBLE` value `-1E19` in `groupBy`, `distinct`, `countDistinct`, window partitions and `dropDuplicates` | Normal value | Merged with NULL | Passed through | Known difference (spec O7) | P-c / diff |
+| FP-10 | `DOUBLE` value `-1E19` in `groupBy`, `distinct`, `countDistinct`, window partitions, `dropDuplicates`, and semi and anti join conditions | Normal value | Merged with NULL; a NULL key matches `-1E19` in a semi or anti join condition (spec §7.15) | Passed through | Known difference (spec O7) | P-c, P-i / diff |
 | FP-11 | Functions returning NaN, NULL or ∞ in Spark (`sqrt(-1)`, `log(0)`, `pow(0, -1)`, `exp(1000)`) | NaN, NULL, ∞ | Fatal error -400 | Out-of-domain inputs routed before the IRIS function (spec §7.10) | Emulated (spec §7.10) | S§2.7, P-e / diff |
 | FP-13 | Comparisons with NaN: `=`, `!=`, `<`, `<=`, `>`, `>=`, `<=>`, `isin`, `between`, in filters and as values | NaN above every value, `+∞` included; NaN = NaN | Varies by plan: NaN below every value between columns of a row, `NaN = NaN` false there and true across a join, NaN parameters unequal to NaN | NaN decided by `x <> x` in `CASE` before IRIS compares (spec §7.14). Fixed in 0.2.1: `filter(d > 0)` dropped NaN rows | Emulated (spec §7.14) | P-i / diff |
 | FP-12 | `+∞` plus `-∞` (`sum`, `avg`, `+` of both infinities) | NaN | Fatal error -400 `<ILLEGAL VALUE>` | `MborobakArithmeticError` | Known difference: emulating it would need a check per row in every sum | P-e / diff |
@@ -161,11 +161,12 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | JOIN-02 | `join(on="id")` output columns | Key once, then left, then right | — | Built by the analyzer | Emulated (spec §6.3) | — / diff |
 | JOIN-03 | `join(on="id", how="full")` key value | Coalesced key | — | `COALESCE(a.id, b.id)` | Emulated (spec §6.3) | P-b / diff |
 | JOIN-04 | Duplicate column names after an expression join | Allowed; ambiguous by name | — | Allowed; `AmbiguousColumnError` by name | Same | — / diff |
-| JOIN-05 | Semi and anti joins | Supported | — | P1 | Unsupported in P0 | — |
+| JOIN-05 | Semi and anti joins (`left_semi`, `left_anti` and their aliases): by condition or by name, duplicate and NULL keys, string and NaN keys | Left rows with (without) a match, once each; left columns, keys first for a join on names | Correlated `EXISTS` evaluates correctly, except FP-10 | `[NOT] EXISTS (SELECT 1 FROM right WHERE cond)` (spec §7.15) | Same (0.2.x) | P-i / diff |
 | JOIN-06 | Join output row order | Unspecified | Unspecified | Passed through | Same; compared as sets | — / doc |
 | UNI-01 | `union` | `UNION ALL` by position | — | `UNION ALL` | Same (D4) | — / diff |
 | UNI-02 | `union` of different numeric types | Widened (`int` + `decimal(10,2)` → `decimal(12,2)`) | — | Widened (int → long → decimal → double) | Same | — / diff |
 | UNI-03 | `union` of `int` and `string` | Widened to `bigint`; strings cast at run time (`'7'` works, `'a'` fails) | — | `AnalysisError` at `union()` | Known difference: stricter than Spark (spec §6.2) | — / diff |
+| UNI-05 | `unionByName`, with and without `allowMissingColumns` | Columns matched by name, case-insensitively; missing ones NULL; error when a column is on one side only | — | Right side reordered, NULL columns added, then `union` | Same (0.2.x) | diff |
 | UNI-04 | `union` where one side lists a column twice (`select(col("k"), col("k").alias("k2"))`) | Both columns kept | — | Each output column has its own id | Same | diff |
 
 ### 2.8 Dates and time
@@ -206,7 +207,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | ID | Behavior | PySpark | Mborobak | Status | Source |
 |----|----------|---------|----------|--------|--------|
 | API-01 | SQL dialect of `session.sql()` | Spark SQL | IRIS SQL | Known difference by design | API contract §3.5 |
-| API-02 | Named `sql()` parameters (`args` as a dict) | Supported | P1 | Unsupported in P0 | API contract §3.5 |
+| API-02 | Named `sql()` parameters (`args` as a dict, `:name` markers) | Supported | Supported (0.2.x): bound as `?` parameters | Same | API contract §3.5 |
 | API-03 | `filter("x > 1")`, `where(...)`, `selectExpr`, `F.expr` | Supported | Supported (0.2): Spark SQL expressions, §2.15 | Same | API contract §4.1, §6.4 |
 | API-04 | `cache()`, `persist()` | Caches | Raises `UnsupportedOperationError` | Unsupported | API contract §4.6 |
 | API-05 | `spark.*` configuration keys | Accepted | Raise | Unsupported by design | API contract §3.1 |

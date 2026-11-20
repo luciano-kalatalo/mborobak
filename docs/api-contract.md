@@ -1,6 +1,6 @@
 # API Contract
 
-Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.6 · 2026-11-20
+Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.7 · 2026-11-20
 
 Defines the public Python API of the P0 release: names, signatures, accepted arguments, return values, errors, and the number of queries each call may run. Implements [mborobak-scope.md](mborobak-scope.md) §5 and §7. How a plan becomes SQL is in the [compiler specification](compiler-spec.md) (control document 1); how results compare to PySpark is in the [compatibility matrix](compatibility-matrix.md) (control document 3).
 
@@ -66,6 +66,7 @@ Opening the connection is the only network call `getOrCreate()` and `create()` m
 |--------|---------|-------|
 | `table(name)` | `DataFrame` | See §3.4. Runs one schema lookup unless cached |
 | `sql(query, args=None)` | `DataFrame` | See §3.5 |
+| `read.table(name)` | `DataFrame` | The same as `table(name)` (0.2.x). `read.format()`, `option()`, `options()` and `schema()` return the reader and have no effect; `read.load()`, `csv()`, `parquet()`, `json()` and the other file readers raise `UnsupportedOperationError` |
 | `catalog.refresh(name=None)` | `None` | Drops cached schemas: one table, or all when `name` is `None` |
 | `catalog.tableExists(name)` | `bool` | One schema lookup |
 | `catalog.listColumns(name)` | `list[CatalogColumn]` | Name, type, nullability, collation |
@@ -104,7 +105,7 @@ Unknown `mborobak.*` keys raise `UnsupportedOperationError` listing the valid ke
 ### 3.5 `sql(query, args=None)`
 
 - `query` is one IRIS `SELECT` statement (or `WITH … SELECT`). Anything else raises `UnsupportedOperationError` before running.
-- `args` is a list of values for `?` markers, in order. The values are sent as parameters, never pasted into the text. Named parameters (`:name`, PySpark's dict form) are P1.
+- `args` is a list of values for `?` markers, in order, or a `dict` for Spark's named markers: `sql("… WHERE id > :low", {"low": 5})` (0.2.x). A name may appear more than once; markers inside strings, quoted identifiers and comments are left alone; `::` is not a marker. A marker without a value raises `ValueError`, and so does a `:name` marker without a dict; a dict with `?` markers raises `UnsupportedOperationError`. Extra dict entries are ignored. The values are sent as parameters, never pasted into the text.
 - The result is a `DataFrame` like any other: transformations wrap the query as a subquery (scope §6.7). Its schema comes from preparing the statement, without fetching rows (scope §5.2).
 - A `sql()` DataFrame used on its own (for example `session.sql(q).collect()`) runs the query exactly as written, so its `ORDER BY` holds.
 - When transformations follow, the query becomes a subquery, and Mborobak adjusts it the way IRIS requires (prototype, verified on IRIS 2026.2):
@@ -138,6 +139,7 @@ All return a new `DataFrame`. Column arguments accept a column name (`str`) or a
 | `limit(num)` | `int` ≥ 0 | |
 | `distinct()` | | |
 | `union(other)`, `unionAll(other)` | `DataFrame` | By position, duplicates kept (D4). Same column count required; numeric types widened |
+| `unionByName(other, allowMissingColumns=False)` | `DataFrame`, `bool` | By name, case-insensitively; output columns in the left side's order and names. With `allowMissingColumns`, a column one side lacks is NULL there, and the right side's extra columns come last; without it, a column on one side only raises `AnalysisError`, and so does a name twice on one side (0.2.x) |
 | `join(other, on=None, how=None)` | `on`: name, list of names, or a boolean `Column`; `how`: §4.2 | `on=None` gives a cross join, as in PySpark 3+ |
 | `crossJoin(other)` | `DataFrame` | |
 | `groupBy(*cols)`, `groupby(...)` | columns | Returns `GroupedData` (§4.3) |
@@ -155,9 +157,10 @@ All return a new `DataFrame`. Column arguments accept a column name (`str`) or a
 | `"right"`, `"rightouter"`, `"right_outer"` | Right outer |
 | `"full"`, `"fullouter"`, `"full_outer"`, `"outer"` | Full outer |
 | `"cross"` | Cross join |
-| `"semi"`, `"leftsemi"`, `"left_semi"`, `"anti"`, `"leftanti"`, `"left_anti"` | P1: raise `UnsupportedOperationError` |
+| `"semi"`, `"leftsemi"`, `"left_semi"` | Left rows that have a match, each once; left columns only (0.2.x) |
+| `"anti"`, `"leftanti"`, `"left_anti"` | Left rows without a match, a NULL key included; left columns only (0.2.x) |
 
-Output columns follow compiler spec §6.3.
+Output columns follow compiler spec §6.3. A semi or anti join on names (`join(other, "k", "left_semi")`) puts the key columns first, as Spark does. Join types are case-insensitive.
 
 ### 4.3 `GroupedData`
 
@@ -201,7 +204,7 @@ These may run a schema lookup but never a data query.
 
 Calling these raises `UnsupportedOperationError`, which names the release that adds them, instead of `AttributeError`:
 
-- P1: `unionByName`, `toLocalIterator`, semi and anti joins, `createDataFrame`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6; `write` in 0.2.x, §4.7.)
+- P1: `toLocalIterator`, `createDataFrame`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6; `write`, `unionByName`, and semi and anti joins in 0.2.x, §4.7, §4.1, §4.2.)
 - Not planned: `cache`, `persist`, `unpersist`, `checkpoint`, `repartition`, `coalesce`, `rdd`, `foreach`, `mapInPandas`, `toArrow`, streaming, UDFs (P2).
 
 `cache()` and `persist()` raise rather than doing nothing, because a silent no-op would hide the fact that every action re-runs the query.

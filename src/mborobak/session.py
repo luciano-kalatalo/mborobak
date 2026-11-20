@@ -204,6 +204,11 @@ class MborobakSession:
             raise SessionClosedError("this session was stopped")
 
     # ---------------------------------------------------------------- sources
+    @property
+    def read(self) -> "DataFrameReader":
+        """``spark.read.table(name)``, the same as ``table(name)``. File readers raise: the data is in IRIS."""
+        return DataFrameReader(self)
+
     def table(self, tableName: str):  # noqa: N803
         from .dataframe import DataFrame
 
@@ -214,8 +219,9 @@ class MborobakSession:
         attrs, unsupported = info.attributes()
         return DataFrame(self, P.TableScan(info.table, attrs, unsupported))
 
-    def sql(self, sqlQuery: str, args: list | tuple | None = None):  # noqa: N803
-        """A DataFrame over one IRIS SELECT. ``args`` fill its ``?`` markers, in order."""
+    def sql(self, sqlQuery: str, args: list | tuple | dict | None = None):  # noqa: N803
+        """A DataFrame over one IRIS SELECT. ``args`` fill its ``?`` markers, in order, or, as a dict, its
+        ``:name`` markers (Spark's named parameters)."""
         from .catalog import type_from_description
         from .dataframe import DataFrame
         from .errors import UnsupportedTypeError
@@ -225,8 +231,10 @@ class MborobakSession:
         loc = caller_location()
         op = f"sql at {loc}" if loc else "sql"
         if isinstance(args, dict):
-            raise UnsupportedOperationError("named sql() parameters are planned for P1; pass a list",
-                                            operation=op)
+            from .sqltext import bind_named
+
+            sqlQuery, bound = bind_named(sqlQuery, args)  # noqa: N806
+            args = bound
         values = tuple(args or ())
         query = prepare(sqlQuery)
         if query.params != len(values):
@@ -333,6 +341,39 @@ class MborobakSession:
         else:
             where = "given connection" if self._connection is not None else "no connection"
         return f"MborobakSession({where})"
+
+
+class DataFrameReader:
+    """``session.read``. Only ``table()`` reads IRIS; formats and options describe files and are ignored."""
+
+    def __init__(self, session: MborobakSession):
+        self._session = session
+
+    def table(self, tableName: str):  # noqa: N803
+        return self._session.table(tableName)
+
+    def format(self, source: str) -> "DataFrameReader":  # noqa: A003
+        return self
+
+    def option(self, key: str, value: Any) -> "DataFrameReader":
+        return self
+
+    def options(self, **options: Any) -> "DataFrameReader":
+        return self
+
+    def schema(self, schema: Any) -> "DataFrameReader":
+        return self
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if name in ("load", "csv", "parquet", "json", "orc", "text", "jdbc", "xml", "delta"):
+            def unsupported(*args: Any, **kwargs: Any):
+                raise UnsupportedOperationError(
+                    f"read.{name}() reads files or other databases; Mborobak reads IRIS tables: use "
+                    "read.table(name) or table(name)", operation=f"read.{name}")
+            return unsupported
+        raise AttributeError(f"'DataFrameReader' object has no attribute {name!r}")
 
 
 def _error_candidates(plan: P.Plan) -> list[str]:

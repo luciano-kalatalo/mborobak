@@ -87,8 +87,8 @@ a.join(b, "id", "left_semi").join(c, on="id", how="left").join(d, "k", how="anti
 """))
     assert r[".filter(str)"] == (SUPPORTED, None, 2)  # Spark SQL expressions (0.2)
     assert r[".filter()"] == (SUPPORTED, None, 1)
-    assert r[".join(how='left_semi')"] == (PLANNED, "0.2.x", 1)
-    assert r[".join(how='anti')"] == (PLANNED, "0.2.x", 1)
+    assert r[".join(how='left_semi')"] == (SUPPORTED, None, 1)
+    assert r[".join(how='anti')"] == (SUPPORTED, None, 1)
     assert r[".join()"] == (SUPPORTED, None, 1)
 
 
@@ -127,7 +127,7 @@ t.cache(); t.na.drop()
     assert r["spark.sql"][0] == SUPPORTED
     assert r["spark.createDataFrame"] == (PLANNED, "0.2.x", 1)
     assert r["spark.read"] == (OUT_OF_SCOPE, None, 1)          # format/option/load counted once
-    assert r["spark.read.table"][0] == NOT_SCHEDULED
+    assert r["spark.read.table"] == (SUPPORTED, None, 1)
     assert r["df.write.saveAsTable"] == (SUPPORTED, None, 1)  # mode() is part of it
     assert r["df.write.parquet"][0] == OUT_OF_SCOPE
     assert r[".filter()"] == (SUPPORTED, None, 1)               # the call before .write still counts
@@ -184,9 +184,10 @@ def test_databricks_source_export():
 def test_coverage_is_cumulative_by_release():
     report = scan_notebook(notebook(
         "from pyspark.sql import functions as F",
-        "df.select(F.col('a'), F.regexp_replace('c', 'x', 'y'), F.explode('d')).unionByName(other)"))
+        "df.select(F.col('a'), F.regexp_replace('c', 'x', 'y'), F.explode('d'))",
+        "spark.createDataFrame(rows)"))
     cov = report.coverage()
-    # 5 calls: select and col supported; unionByName 0.2.x; regexp_replace 0.3; explode not scheduled
+    # 5 calls: select and col supported; createDataFrame 0.2.x; regexp_replace 0.3; explode not scheduled
     assert cov["today"] == pytest.approx(2 / 5)
     assert cov["after 0.2"] == pytest.approx(2 / 5)
     assert cov["after 0.2.x"] == pytest.approx(3 / 5)

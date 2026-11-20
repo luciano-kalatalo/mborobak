@@ -64,7 +64,6 @@ _OUT_OF_SCOPE_FUNCTIONS = {
 }
 _PLANNED_METHODS = {
     "0.2": "selectExpr dropDuplicates drop_duplicates over fillna dropna",
-    "0.2.x": "unionByName",
 }
 _OUT_OF_SCOPE_METHODS = {
     "cache": "IRIS keeps its own caches; drop the call",
@@ -146,6 +145,7 @@ def _supported() -> dict[str, set[str]]:
     from .session import _CatalogAPI
     from .sql import functions as F
     from .sql.window import Window, WindowSpec
+    from .dataframe import _JOIN_TYPES
     from .writer import DataFrameWriter
 
     def public(cls) -> set[str]:
@@ -155,7 +155,7 @@ def _supported() -> dict[str, set[str]]:
                  if callable(f) and not n.startswith("_") and getattr(f, "__module__", "") == F.__name__}
     return {
         FUNCTION: functions,
-        METHOD: public(DataFrame) | public(Column) | public(GroupedData),
+        METHOD: public(DataFrame) | public(Column) | public(GroupedData) | {f"join(how={k!r})" for k in _JOIN_TYPES},
         SESSION: public(MborobakSession) | {"catalog." + n for n in public(_CatalogAPI)},
         WINDOW: public(Window) | public(WindowSpec),
         WRITER: public(DataFrameWriter),
@@ -278,6 +278,8 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
                 return SUPPORTED, None, "Spark SQL expression"
             return PLANNED, "0.2", "SQL-string condition; use F.col(...) conditions today"
         if name.startswith("join(how="):
+            if name in supported[METHOD]:
+                return SUPPORTED, None, None
             return PLANNED, "0.2.x", "semi and anti joins"
         if name in ("na.fill", "na.drop"):
             if {"fillna", "dropna"} <= supported[METHOD]:
@@ -294,7 +296,7 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         return NOT_SCHEDULED, None, None
     if kind == SESSION:
         if name in supported[SESSION]:
-            note = "IRIS SQL dialect, with ? parameters" if name == "sql" else None
+            note = "IRIS SQL dialect, with ? or :name parameters" if name == "sql" else None
             return SUPPORTED, None, note
         if name in _PLANNED_SESSION:
             return PLANNED, _PLANNED_SESSION[name], None
@@ -307,6 +309,8 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         return PLANNED, _WINDOW_PLANNED, "window functions"
     if kind == READER:
         if name == "read.table":
+            if "read" in supported[SESSION]:
+                return SUPPORTED, None, None
             return NOT_SCHEDULED, None, "same as spark.table(), which is supported"
         return OUT_OF_SCOPE, None, "reads files or external sources; the POC data is in IRIS"
     if kind == WRITER:

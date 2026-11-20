@@ -19,11 +19,12 @@ from dataclasses import dataclass
 from .errors import UnsupportedOperationError
 
 _WORD = re.compile(r"[A-Za-z_%][A-Za-z0-9_$%]*")
+_NAMED = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)")
 
 
 @dataclass(frozen=True)
 class Token:
-    kind: str  # word, param, semicolon, open, close, other
+    kind: str  # word, param (?), named (:name), semicolon, open, close, other
     text: str
     start: int
     depth: int
@@ -74,6 +75,10 @@ def tokens(sql: str) -> list[Token]:
         elif ch == ";":
             out.append(Token("semicolon", ch, i, depth))
             i += 1
+        elif ch == ":" and _NAMED.match(sql, i) and not (i > 0 and sql[i - 1] == ":"):
+            m = _NAMED.match(sql, i)
+            out.append(Token("named", m.group(0), i, depth))
+            i = m.end()
         else:
             m = _WORD.match(sql, i)
             if m:
@@ -86,6 +91,28 @@ def tokens(sql: str) -> list[Token]:
     if depth != 0:
         raise ValueError("unbalanced parentheses in SQL")
     return out
+
+
+def bind_named(sql: str, args: dict) -> tuple[str, list]:
+    """Spark's named parameter markers (``:name``) → ``?`` markers and their values, in text order. Markers
+    inside strings, quoted identifiers and comments are left alone. A name may appear more than once."""
+    if not all(isinstance(k, str) for k in args):
+        raise TypeError("sql(args=...) takes a dict with str keys for :name markers, or a list for ? markers")
+    toks = tokens(sql)
+    if any(t.kind == "param" for t in toks):
+        raise UnsupportedOperationError("sql() with a dict of args takes :name markers, not ?")
+    named = [t for t in toks if t.kind == "named"]
+    missing = sorted({t.text[1:] for t in named if t.text[1:] not in args})
+    if missing:
+        raise ValueError(f"sql(): no value for parameter(s) {', '.join(':' + m for m in missing)}")
+    text, values, last = [], [], 0
+    for t in named:
+        text.append(sql[last:t.start])
+        text.append("?")
+        values.append(args[t.text[1:]])
+        last = t.start + len(t.text)
+    text.append(sql[last:])
+    return "".join(text), values
 
 
 @dataclass(frozen=True)
@@ -116,6 +143,9 @@ def prepare(sql: str) -> PreparedQuery:
         if t.depth == 0 and t.text.upper() in forbidden and t is not words[0]:
             raise UnsupportedOperationError(f"sql() only runs SELECT statements; found {t.text.upper()}")
     total_params = sum(1 for t in toks if t.kind == "param")
+    named = next((t for t in toks if t.kind == "named"), None)
+    if named is not None:
+        raise ValueError(f"the query has a named parameter {named.text}; pass its value in sql(args={{...}})")
 
     cte, cte_params, main_start = None, 0, 0
     if words[0].text.upper() == "WITH":

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Semi and anti joins: `join(other, on, "left_semi")` and `"left_anti"` (with the aliases `semi`, `leftsemi`, `anti`, `leftanti`), by condition or by column names. They compile to `[NOT] EXISTS`, so a left row never repeats (compiler spec §7.15, matrix JOIN-05).
+- `unionByName(other, allowMissingColumns=False)`: union with columns matched by name, case-insensitively; missing columns become NULL with `allowMissingColumns` (matrix UNI-05).
+- `spark.read.table(name)`, the same as `spark.table(name)`. File readers (`read.csv`, `read.parquet`, `read.load` …) raise `UnsupportedOperationError`.
+- Named `sql()` parameters: `session.sql("… WHERE id > :low", {"low": 5})`, bound as parameters (API contract §3.5).
+- Known difference FP-10 now also covers semi and anti joins: on a double key, a NULL matches the value `-1E19`, which IRIS uses as its internal NULL marker.
+
 ## 0.2.1 (2026-11-20)
 
 Writing tables, the first tier-2 item of the [POC readiness plan](docs/poc-readiness-plan.md), and a fix for comparisons with NaN. On the public Databricks notebooks, 93% of the PySpark calls that matter in a POC are now supported (91% in 0.2.0).

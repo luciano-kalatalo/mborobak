@@ -44,7 +44,6 @@ if TYPE_CHECKING:
 __all__ = ["DataFrame", "GroupedData"]
 
 _LATER = {
-    "unionByName": "P1",
     "toLocalIterator": "P1", "createOrReplaceTempView": "P1",
 }
 
@@ -54,8 +53,9 @@ _JOIN_TYPES = {
     "right": "right", "rightouter": "right", "right_outer": "right",
     "full": "full", "fullouter": "full", "full_outer": "full", "outer": "full",
     "cross": "cross",
+    "semi": "semi", "leftsemi": "semi", "left_semi": "semi",
+    "anti": "anti", "leftanti": "anti", "left_anti": "anti",
 }
-_LATER_JOINS = ("semi", "leftsemi", "left_semi", "anti", "leftanti", "left_anti")
 _NEVER = ("cache", "persist", "unpersist", "checkpoint", "localCheckpoint", "repartition", "coalesce",
           "rdd", "foreach", "foreachPartition", "mapInPandas", "toArrow", "writeStream")
 
@@ -384,8 +384,6 @@ class DataFrame:
         if other._session is not self._session:
             raise ValueError("cannot join DataFrames from different sessions")
         key = (how or "inner").lower()
-        if key in _LATER_JOINS:
-            raise UnsupportedOperationError(f"{how} joins are planned for P1", operation=op)
         if key not in _JOIN_TYPES:
             raise ValueError(f"unknown join type {how!r}; use one of {', '.join(_JOIN_TYPES)}")
         join_type = _JOIN_TYPES[key]
@@ -404,7 +402,8 @@ class DataFrame:
         conditions = list(on) if isinstance(on, (list, tuple)) else [on]
         if not all(isinstance(c, Column) for c in conditions):
             raise TypeError("join(on=...) takes a column name, a list of names, or Column conditions")
-        draft = P.Join(left, right, join_type, None)
+        # Conditions see both sides, also for semi and anti joins, whose output is the left side only.
+        draft = P.Join(left, right, "inner" if join_type in ("semi", "anti") else join_type, None)
         resolved = [resolve(c._expr, draft, op) for c in conditions]
         cond = resolved[0]
         for c in resolved[1:]:
@@ -429,6 +428,12 @@ class DataFrame:
             eq = E.Comparison("=", E.AttrRef(la), E.AttrRef(ra))
             cond = eq if cond is None else E.And(cond, eq)
         joined = P.Join(left, right, join_type, cond)
+        if join_type in ("semi", "anti"):  # the left columns, keys first, as Spark orders them
+            keys = [la for la, _ in pairs]
+            key_ids = {a.id for a in keys}
+            items = [(a, E.AttrRef(a)) for a in keys] + \
+                [(a, E.AttrRef(a)) for a in joined.output if a.id not in key_ids]
+            return self._with(P.Project(joined, tuple(items)))
         current = {a.id: a for a in joined.output}
         items: list[tuple[E.Attribute, E.Expr]] = []
         for la, ra in pairs:
@@ -472,6 +477,43 @@ class DataFrame:
         return self._with(P.Union(inputs, tuple(attrs)))
 
     unionAll = union
+
+    def unionByName(self, other: "DataFrame", allowMissingColumns: bool = False) -> "DataFrame":  # noqa: N802, N803
+        """``union`` with columns matched by name (case-insensitively, as Spark does). With
+        ``allowMissingColumns``, a column one side lacks is NULL there; the right side's extra columns come
+        last."""
+        op = _op("unionByName")
+        if not isinstance(other, DataFrame):
+            raise TypeError("unionByName() takes a DataFrame")
+
+        def by_name(df: "DataFrame", side: str) -> dict[str, E.Attribute]:
+            out: dict[str, E.Attribute] = {}
+            for a in df._plan.output:
+                if a.name.lower() in out:
+                    raise AnalysisError(f"unionByName(): the {side} DataFrame has two columns named {a.name!r}",
+                                        operation=op)
+                out[a.name.lower()] = a
+            return out
+
+        left, right = by_name(self, "left"), by_name(other, "right")
+        missing_right = [a.name for k, a in left.items() if k not in right]
+        missing_left = [a for k, a in right.items() if k not in left]
+        if not allowMissingColumns and (missing_right or missing_left):
+            raise AnalysisError(
+                f"unionByName(): columns {missing_right or [a.name for a in missing_left]} are only in the "
+                f"{'left' if missing_right else 'right'} DataFrame; pass allowMissingColumns=True to fill them "
+                "with NULL", operation=op)
+
+        def null(dtype) -> E.Expr:
+            return E.Cast(E.Literal(None, NullType()), dtype)
+
+        left_items = [Column(E.AttrRef(a)) for a in left.values()]
+        left_items += [Column(E.Alias(null(a.dtype), a.name)) for a in missing_left]
+        right_items = [Column(E.Alias(E.AttrRef(right[k]), a.name)) if k in right
+                       else Column(E.Alias(null(a.dtype), a.name)) for k, a in left.items()]
+        right_items += [Column(E.AttrRef(a)) for a in missing_left]
+        first = self.select(*left_items) if missing_left else self
+        return first.union(other.select(*right_items))
 
     # ---------------------------------------------------------------- writing
     @property

@@ -73,3 +73,14 @@ def test_sql_errors(session):
         session.sql("SELECT nope FROM MborobakTest.Sales")
     with pytest.raises(UnsupportedTypeError):
         session.sql("SELECT CAST('10:00:00' AS TIME) AS t FROM MborobakTest.Sales")
+
+
+def test_named_parameters(session):
+    df = session.sql("SELECT id, status FROM MborobakTest.Sales WHERE id > :low AND id < :high AND id <> :low + 1",
+                     {"low": 2, "high": 7})
+    assert sorted(r.id for r in df.collect()) == [4, 5, 6]
+    assert session.lastExecution.params == [2, 7, 2]
+
+
+def test_read_table(session):
+    assert session.read.table("MborobakTest.Sales").count() == session.table("MborobakTest.Sales").count() == 9

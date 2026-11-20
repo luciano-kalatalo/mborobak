@@ -152,7 +152,7 @@ class SubqueryAlias(Plan):
         return (self.child,)
 
 
-JOIN_TYPES = ("inner", "left", "right", "full", "cross")
+JOIN_TYPES = ("inner", "left", "right", "full", "cross", "semi", "anti")
 
 
 @dataclass(frozen=True, eq=False)
@@ -164,6 +164,8 @@ class Join(Plan):
 
     @property
     def output(self):
+        if self.join_type in ("semi", "anti"):  # left rows that have (or lack) a match: left columns only
+            return tuple(self.left.output)
         left_nullable = self.join_type in ("right", "full")
         right_nullable = self.join_type in ("left", "full")
 

@@ -284,6 +284,19 @@ class Exact(Expr):
         return (self.child,)
 
 
+@dataclass(frozen=True, eq=False)
+class Exists(Expr):
+    """SQL level: ``[NOT] EXISTS (SELECT 1 FROM <item> WHERE <condition>)`` for semi and anti joins
+    (compiler spec §7.15). ``item`` is the compiler's FromItem for the right side."""
+
+    item: Any
+    condition: "Expr | None"
+    negated: bool
+
+    def children(self):
+        return (self.condition,) if self.condition is not None else ()
+
+
 @dataclass(frozen=True)
 class TextOrder(Expr):
     """A string compared or sorted by code point, as Spark does (compiler spec §7.1): ``%EXACT(' ' || x)``.

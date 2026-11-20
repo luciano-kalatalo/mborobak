@@ -64,10 +64,67 @@ def test_ambiguous_and_qualified_names(session):
     assert joined.select(F.col("Sales.id"), F.col("Customers.id").alias("cid")).columns == ["id", "cid"]
 
 
-def test_semi_join_is_later(session):
+def test_semi_and_anti_joins_use_exists(session):
     s, c = session.table("Sales"), session.table("Customers")
-    with pytest.raises(UnsupportedOperationError, match="P1"):
-        s.join(c, s.customer_id == c.id, "left_semi")
+    for how in ("semi", "leftsemi", "left_semi", "SEMI"):
+        df = s.join(c, s.customer_id == c.id, how)
+        assert df.columns == ["id", "customer_id", "amount"]  # the left side only
+        assert df.toSQL()[0] == ('SELECT t1."id", t1."customer_id", t1."amount"\nFROM "SQLUser"."Sales" AS t1\n'
+                                 'WHERE EXISTS (SELECT 1 FROM "SQLUser"."Customers" AS t2 '
+                                 'WHERE t1."customer_id" = t2."id")')
+    for how in ("anti", "leftanti", "left_anti"):
+        assert 'WHERE NOT EXISTS (SELECT 1 FROM "SQLUser"."Customers" AS t2 WHERE' in \
+            s.join(c, s.customer_id == c.id, how).toSQL()[0]
+
+
+def test_semi_join_on_names_keeps_the_left_columns(session):
+    s = session.table("Sales")
+    c = session.table("Customers").withColumnRenamed("id", "customer_id")
+    df = s.join(c, "customer_id", "left_semi")
+    assert df.columns == ["customer_id", "id", "amount"]  # keys first, as in Spark
+    assert df.schema[1].nullable is False
+
+
+def test_semi_join_with_filters_on_both_sides(session):
+    s, c = session.table("Sales"), session.table("Customers")
+    df = s.join(c.filter(c.country == "BR"), (s.customer_id == c.id) & (c.name != "x"), "semi").filter(s.id > 5)
+    text, params = df.toSQL()
+    assert "EXISTS (SELECT 1 FROM (" in text and 'WHERE %EXACT("country") = ?' in text
+    assert text.endswith('AND t1."id" > ?') and params == ["BR", "x", 5]
+    joined = df.join(c, s.customer_id == c.id)  # a later join wraps the semi join as a subquery
+    assert joined.columns == ["id", "customer_id", "amount", "id", "name", "country"]
+    assert "WHERE EXISTS" in joined.toSQL()[0]
+
+
+def test_semi_join_condition_must_use_both_sides_resolvably(session):
+    s, c = session.table("Sales"), session.table("Customers")
+    with pytest.raises(AnalysisError):
+        s.join(c, s.customer_id == c.id, "anti").select(c.name)  # the right side is not in the output
+    assert s.join(c, how="semi").toSQL()[0].endswith('WHERE EXISTS (SELECT 1 FROM "SQLUser"."Customers" AS t2)')
+
+
+def test_union_by_name(session):
+    s, c = session.table("Sales"), session.table("Customers")
+    left = s.select("id", F.col("amount").alias("value"))
+    right = c.select(F.col("id").cast("decimal(10,2)").alias("VALUE"), "ID")  # other order, other case
+    df = left.unionByName(right)
+    assert df.columns == ["id", "value"]
+    text, _ = df.toSQL()
+    assert 'SELECT "id", CAST("id" AS NUMERIC(10,2)) AS "value"' in text  # reordered by name
+    with pytest.raises(AnalysisError, match=r"\['country'\] are only in the right"):
+        left.unionByName(c.select(F.col("name").alias("Value"), "id", "country"))
+
+
+def test_union_by_name_with_missing_columns(session):
+    s, c = session.table("Sales"), session.table("Customers")
+    df = s.select("id", "amount").unionByName(c.select("name", "id"), allowMissingColumns=True)
+    assert df.dtypes == [("id", "int"), ("amount", "decimal(10,2)"), ("name", "string")]
+    text, _ = df.toSQL()
+    assert 'CAST(NULL AS NUMERIC(10,2)) AS "amount"' in text and 'CAST(NULL AS VARCHAR(32767)) AS "name"' in text
+    with pytest.raises(AnalysisError, match=r"\['amount'\] are only in the left"):
+        s.select("id", "amount").unionByName(c.select("id"))
+    with pytest.raises(AnalysisError, match="two columns named"):
+        s.select("id", F.col("amount").alias("ID")).unionByName(c.select("id"))
 
 
 def test_union_sql_and_widening(session):

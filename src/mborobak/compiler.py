@@ -453,6 +453,8 @@ class Compiler:
         return FromItem(b, alias), env
 
     def join(self, node: P.Join) -> Block:
+        if node.join_type in ("semi", "anti"):
+            return self.semi_join(node)
         left = self.build(node.left)
         right = self.build(node.right)
         if isinstance(left.source, JoinSource) and self._is_plain(left):
@@ -468,6 +470,19 @@ class Compiler:
             cond = self.substitute(self.translate(node.condition), env)
         source.joins.append((node.join_type, right_item, cond))
         return Block(source=source, env=env, select=list(node.output))
+
+    def semi_join(self, node: P.Join) -> Block:
+        """Left rows with (semi) or without (anti) a matching right row: ``WHERE [NOT] EXISTS (SELECT 1 FROM
+        right WHERE condition)`` (§7.15). EXISTS never repeats a left row, and NOT EXISTS keeps rows whose
+        condition is NULL, as Spark's anti join does."""
+        left_item, env = self.from_item(self.build(node.left))
+        right_item, right_env = self.from_item(self.build(node.right))
+        cond = None
+        if node.condition is not None:
+            cond = self.substitute(self.translate(node.condition), {**env, **right_env})
+        b = Block(source=JoinSource(left_item), env=env, select=list(node.output))
+        b.where.append(E.Exists(right_item, cond, node.join_type == "anti"))
+        return b
 
     def union(self, node: P.Union) -> Block:
         arms = []
@@ -619,7 +634,7 @@ def _frame_bound(value: int | None, unbounded: str) -> str:
     return f"{abs(value)} {'PRECEDING' if value < 0 else 'FOLLOWING'}"  # constants: IRIS takes no parameters here
 
 
-_PREDICATES = (E.Comparison, E.And, E.Or, E.Not, E.IsNull, E.In, E.Like)
+_PREDICATES = (E.Comparison, E.And, E.Or, E.Not, E.IsNull, E.In, E.Like, E.Exists)
 
 
 class Renderer:
@@ -987,6 +1002,10 @@ class Renderer:
             return f"{self.value(e.child)} IN ({', '.join(self.value(v) for v in e.values)})"
         if isinstance(e, E.Like):
             return f"{self.value(e.child)} LIKE {self.value(e.pattern)}"
+        if isinstance(e, E.Exists):
+            source = self.from_item(e.item, "  ")  # first: parameters are collected in text order
+            where = f" WHERE {self.pred(e.condition)}" if e.condition is not None else ""
+            return f"{'NOT ' if e.negated else ''}EXISTS (SELECT 1 FROM {source}{where})"
         if isinstance(e, E.Literal) and e.value is None:
             return "1 = 0"
         if isinstance(e, E.Func) and scalar.spec(e.name).predicate:

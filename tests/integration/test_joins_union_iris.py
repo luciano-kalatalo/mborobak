@@ -135,3 +135,20 @@ def test_union_arm_with_order_and_limit(sales, customers):
     top2 = sales.orderBy(F.col("amount").desc()).limit(2).select("id")
     df = top2.union(customers.select("id"))
     assert sorted(r.id for r in df.collect()) == [1, 3, 10, 20, 30, 50]
+
+
+def test_semi_and_anti_joins(session):
+    s, c = session.table("MborobakTest.Sales"), session.table("MborobakTest.Customers")
+    semi = s.join(c.filter(c.country == "BR"), s.customer_id == c.id, "left_semi")
+    assert sorted(r.id for r in semi.collect()) == [1, 2, 5, 6]  # customers 10 and 30
+    anti = s.join(c, s.customer_id == c.id, "left_anti")
+    assert sorted(r.id for r in anti.collect()) == [7, 8, 9]  # customer NULL and 40
+    assert anti.count() == 3
+
+
+def test_union_by_name(session):
+    s, c = session.table("MborobakTest.Sales"), session.table("MborobakTest.Customers")
+    df = s.select("id", "status").unionByName(c.select(F.col("name").alias("STATUS"), "id"))
+    assert df.count() == 13 and df.columns == ["id", "status"]
+    missing = s.select("id").unionByName(c.select("id", "name"), allowMissingColumns=True)
+    assert sum(1 for r in missing.collect() if r.name is None) == 9

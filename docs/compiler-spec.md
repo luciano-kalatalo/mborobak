@@ -425,6 +425,22 @@ Only `x <> x` inside `CASE` finds NaN reliably (it is never true in a bare `WHER
 
 Every form is a predicate with NULL where Spark's result is NULL, so `NOT`, `CASE WHEN p THEN 1 WHEN NOT p THEN 0 END` (§7.8) and `between` (two comparisons) work unchanged. The operands are rendered once per use, so their parameters repeat in order. `explain()` lists the translation once. Release 0.2.0 and earlier passed comparisons through: `filter(d > 0)` dropped NaN rows, and `d < e` was wrong whenever one side was NaN (matrix FP-13).
 
+### 7.15 Semi and anti joins
+
+`join(other, cond, "left_semi")` keeps the left rows for which some right row makes `cond` true; `"left_anti"` keeps the others, rows whose condition is NULL included. Both output the left columns only (`P.Join.output`). They compile to a correlated subquery in `WHERE`, not to a `JOIN`, so a left row never repeats however many right rows match:
+
+```sql
+SELECT t1."id", t1."k", t1."s"
+FROM "SQLUser"."A" AS t1
+WHERE [NOT] EXISTS (SELECT 1 FROM "SQLUser"."B" AS t2 WHERE t1."k" = t2."k")
+```
+
+Each side is a `FromItem` as in other joins (the table itself, or a subquery when filtered or aggregated); the condition is translated like a join condition (collation §7.1, NaN §7.14) and rendered after the right side, so parameters stay in text order. Without a condition, the subquery has no `WHERE`. The block has a `WHERE` from then on, so a later join or `limit` wraps it as a subquery. A join on names (`on="k"`) adds a projection with the keys first, as Spark orders them.
+
+IRIS evaluates the condition correctly, NaN and NULL keys included (probe 2026-11-20), with one exception from the `-1E19` family (§7.9, matrix FP-10): when the condition on a `DOUBLE` key is more than a bare `=` (the NaN form of §7.14 is), a NULL outer key matches a right row whose value is `-1E19`, even with an explicit `IS NULL` guard. Values other than `-1E19` are not affected.
+
+`unionByName` needs no compiler support: the DataFrame layer reorders the right side by name, adds `CAST(NULL AS type)` columns for `allowMissingColumns`, and builds a `union` (§9.1).
+
 ## 8. Optional rewrites
 
 Each rewrite has a name, a precondition and a session switch (`optimizer.<name>`, default on). The test suite runs every test with all rewrites on and with all off and compares results (scope §6.10).

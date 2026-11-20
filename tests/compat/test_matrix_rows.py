@@ -324,6 +324,11 @@ def test_FP_13_comparisons_with_nan(pair):
 
 @known_difference("FP-10")
 def test_FP_10_minus_1e19_groups_with_null(pair):
+    def semi(F, df):  # NULL (id 9) matches -1E19 (id 7) in a semi join condition on doubles
+        a, b = df.alias("a"), df.filter(F.col("id") == 7).alias("b")
+        return a.join(b, F.col("a.d") == F.col("b.d"), "semi").select("id")
+
+    assert_same(*pair.both("nums", semi))
     assert_same(*pair.both("nums", lambda F, df: df.filter(F.col("id").isin(7, 9)).groupBy("d").count()))
 
 
@@ -372,6 +377,42 @@ def test_JOIN_04_duplicate_names_after_expression_join(pair):
     left, right = pair.mb("left"), pair.mb("right")
     sl, sr = pair.sp("left"), pair.sp("right")
     assert_same(left.join(right, left.k == right.k), sl.join(sr, sl.k == sr.k))
+
+
+
+def F_upper(c):  # noqa: N802
+    from mborobak.sql import functions as MF
+
+    return MF.upper(c)
+
+
+def SF_upper(c):  # noqa: N802
+    from pyspark.sql import functions as SF
+
+    return SF.upper(c)
+
+
+@pytest.mark.parametrize("how", ["left_semi", "semi", "left_anti", "anti"])
+def test_JOIN_05_semi_and_anti_joins(pair, how):
+    left, right = pair.mb("left"), pair.mb("right")
+    sl, sr = pair.sp("left"), pair.sp("right")
+    # right has k = 2 twice (no duplicated left rows), NULL keys on both sides (never match)
+    assert_same(left.join(right, left.k == right.k, how), sl.join(sr, sl.k == sr.k, how))
+    assert_same(left.join(right, "k", how), sl.join(sr, "k", how))
+    # a string condition (case-sensitive), a filtered right side and a filter afterwards
+    assert_same(left.join(right.filter(right.id > 10), (left.k == right.k) & (F_upper(left.name) != right.label), how)
+                .filter(left.id < 5), sl.join(sr.filter(sr.id > 10), (sl.k == sr.k) & (SF_upper(sl.name) != sr.label),
+                                              how).filter(sl.id < 5))
+
+
+def test_JOIN_05_semi_and_anti_joins_on_nan_keys(pair):
+    for how in ("semi", "anti"):
+        def build(F, df, how=how):
+            # without -1E19 (id 7): in a correlated condition IRIS matches it with NULL (FP-10)
+            a, b = df.alias("a"), df.filter(~F.col("id").isin(2, 7)).alias("b")
+            return a.join(b, F.col("a.d") == F.col("b.d"), how).select("id")
+
+        assert_same(*pair.both("nums", build))
 
 
 def test_UNI_01_union_all_by_position(pair):
@@ -479,6 +520,22 @@ def test_UNI_04_union_with_a_repeated_column(pair):
         return df.select(F.col("k"), F.col("k").alias("k2")).union(df.select("id", "k"))
 
     assert_same(*pair.both("left", build))
+
+
+def test_UNI_05_union_by_name(pair):
+    def build(F, df):
+        return df.select("id", "k", "name").unionByName(df.select(F.col("name").alias("NAME"), "k", "ID"))
+
+    assert_same(*pair.both("left", build))
+    left, right = pair.mb("left"), pair.mb("right")
+    sl, sr = pair.sp("left"), pair.sp("right")
+    assert_same(left.unionByName(right, allowMissingColumns=True), sl.unionByName(sr, allowMissingColumns=True))
+    assert_same(*pair.both("nums", lambda F, df: df.select("id", "i").unionByName(df.select("n", "id"),
+                                                                                  allowMissingColumns=True)))
+    with pytest.raises(AnalysisError):
+        left.unionByName(right)
+    with pytest.raises(Exception):  # noqa: B017 - Spark: NUM_COLUMNS_MISMATCH or a missing column
+        sl.unionByName(sr).collect()
 
 
 def test_ORD_06_order_kept_when_select_drops_the_sort_key(pair):

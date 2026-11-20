@@ -91,8 +91,12 @@ def test_errors():
     s, _ = session_with(INT, INT)
     with pytest.raises(ValueError, match="1 '\\?' markers"):
         s.sql("SELECT a FROM t WHERE a > ?")
-    with pytest.raises(UnsupportedOperationError, match="P1"):
-        s.sql("SELECT a FROM t WHERE a > :x", {"x": 1})
+    with pytest.raises(ValueError, match="named parameter :x"):
+        s.sql("SELECT a FROM t WHERE a > :x")
+    with pytest.raises(ValueError, match="no value for parameter"):
+        s.sql("SELECT a FROM t WHERE a > :x", {"y": 1})
+    with pytest.raises(UnsupportedOperationError, match=":name markers, not \\?"):
+        s.sql("SELECT a FROM t WHERE a > ? AND a < :x", {"x": 1})
     dup = s.sql("SELECT a, a FROM t")
     assert dup.toSQL()[0] == "SELECT a, a FROM t"  # fine on its own
     with pytest.raises(AnalysisError, match="duplicate column names"):
@@ -100,3 +104,22 @@ def test_errors():
     t, _ = session_with(("t", 1092, None, None, 18, -1, 1))
     with pytest.raises(UnsupportedTypeError, match="TIME|time"):
         t.sql("SELECT CAST('10:00' AS TIME) AS t")
+
+
+def test_named_parameters():
+    s, seen = session_with(INT)
+    df = s.sql("SELECT a FROM t WHERE a > :low AND a < :high OR a = :low -- :ignored\n AND ':low' <> ''",
+               {"low": 1, "high": 9, "unused": 0})
+    assert df.toSQL() == ("SELECT a FROM t WHERE a > ? AND a < ? OR a = ? -- :ignored\n AND ':low' <> ''", [1, 9, 1])
+    assert seen[0][1] == [1, 9, 1]
+
+
+def test_read_table_is_table():
+    from mborobak.sql.types import IntegerType as Int
+
+    s = MborobakSession._for_tests(StaticCatalog({"Sales": [("id", Int())]}))
+    assert s.read.table("Sales").toSQL() == s.table("Sales").toSQL()
+    assert s.read.format("delta").option("x", 1).table("Sales").columns == ["id"]
+    for name in ("load", "csv", "parquet", "json"):
+        with pytest.raises(UnsupportedOperationError, match="reads files"):
+            getattr(s.read, name)("/tmp/x")
