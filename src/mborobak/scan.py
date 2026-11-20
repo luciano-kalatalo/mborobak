@@ -139,6 +139,15 @@ _PLANNED_FUNCTION_RELEASE = _words(_PLANNED_FUNCTIONS)
 _PLANNED_METHOD_RELEASE = _words(_PLANNED_METHODS)
 
 
+def _dialects() -> set[str]:
+    try:
+        from . import sparksql  # noqa: F401
+
+        return {"sql(spark)"}
+    except ImportError:
+        return set()
+
+
 def _supported() -> dict[str, set[str]]:
     """What the installed Mborobak provides, by kind."""
     from . import Column, DataFrame, GroupedData, MborobakSession
@@ -156,7 +165,7 @@ def _supported() -> dict[str, set[str]]:
     return {
         FUNCTION: functions,
         METHOD: public(DataFrame) | public(Column) | public(GroupedData) | {f"join(how={k!r})" for k in _JOIN_TYPES},
-        SESSION: public(MborobakSession) | {"catalog." + n for n in public(_CatalogAPI)},
+        SESSION: public(MborobakSession) | {"catalog." + n for n in public(_CatalogAPI)} | _dialects(),
         WINDOW: public(Window) | public(WindowSpec),
         WRITER: public(DataFrameWriter),
     }
@@ -296,7 +305,7 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         return NOT_SCHEDULED, None, None
     if kind == SESSION:
         if name in supported[SESSION]:
-            note = "IRIS SQL dialect, with ? or :name parameters" if name == "sql" else None
+            note = "IRIS SQL, or Spark SQL with mborobak.sql.dialect = 'spark'" if name == "sql" else None
             return SUPPORTED, None, note
         if name in _PLANNED_SESSION:
             return PLANNED, _PLANNED_SESSION[name], None
@@ -323,6 +332,8 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
             return SUPPORTED, None, None
         return NOT_SCHEDULED, None, None
     if kind == PLATFORM:
+        if name == "%sql cell" and "sql(spark)" in supported[SESSION]:
+            return SUPPORTED, None, "as spark.sql(\"…\") with mborobak.sql.dialect = 'spark' (SELECT statements)"
         return _PLATFORM.get(name, (OUT_OF_SCOPE, None, None))
     raise ValueError(kind)
 

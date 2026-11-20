@@ -31,6 +31,8 @@ _CONNECTION_KEYS = ("host", "port", "namespace", "user", "password", "timeout")
 _SETTINGS: dict[str, tuple[Any, Any]] = {
     # key: (default, validator)
     "mborobak.sql.stringSemantics": ("pyspark", lambda v: v in ("pyspark", "iris")),
+    # sql(): "iris" passes IRIS SQL through; "spark" parses Spark SQL into DataFrame operations (§3.5)
+    "mborobak.sql.dialect": ("iris", lambda v: v in ("iris", "spark")),
     "mborobak.optimizer.enabled": (True, lambda v: isinstance(v, bool)),
     "mborobak.sql.maxParameters": (900, lambda v: isinstance(v, int) and 1 <= v <= 900),
     "mborobak.sql.cacheSize": (256, lambda v: isinstance(v, int) and v >= 0),
@@ -232,9 +234,12 @@ class MborobakSession:
         return create_data_frame(self, data, schema, verifySchema,
                                  f"createDataFrame at {loc}" if loc else "createDataFrame")
 
-    def sql(self, sqlQuery: str, args: list | tuple | dict | None = None):  # noqa: N803
-        """A DataFrame over one IRIS SELECT. ``args`` fill its ``?`` markers, in order, or, as a dict, its
-        ``:name`` markers (Spark's named parameters)."""
+    def sql(self, sqlQuery: str, args: list | tuple | dict | None = None, **kwargs: Any):  # noqa: N803
+        """A DataFrame over one SELECT. ``args`` fill its ``?`` markers, in order, or, as a dict, its
+        ``:name`` markers (Spark's named parameters). ``kwargs`` fill ``{name}`` placeholders, as in PySpark.
+
+        The dialect is IRIS SQL, passed through, unless ``mborobak.sql.dialect`` is ``"spark"``: then the
+        statement is Spark SQL, built from DataFrame operations (compiler spec §7.17)."""
         from .catalog import type_from_description
         from .dataframe import DataFrame
         from .errors import UnsupportedTypeError
@@ -243,6 +248,17 @@ class MborobakSession:
         self._check_open()
         loc = caller_location()
         op = f"sql at {loc}" if loc else "sql"
+        if self.conf.get("mborobak.sql.dialect") == "spark":
+            from .sparksql import run
+
+            return run(self, sqlQuery, args, kwargs)
+        if kwargs:
+            from .dataframe import DataFrame as _DF
+
+            if any(isinstance(v, _DF) for v in kwargs.values()):
+                raise UnsupportedOperationError("a DataFrame in sql(..., name=df) needs the Spark dialect: "
+                                                "conf.set('mborobak.sql.dialect', 'spark')", operation=op)
+            sqlQuery = sqlQuery.format(**kwargs)  # noqa: N806
         if isinstance(args, dict):
             from .sqltext import bind_named
 

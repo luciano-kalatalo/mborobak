@@ -1,6 +1,6 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.9 · 2026-11-20
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.10 · 2026-11-20
 
 Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
@@ -464,6 +464,26 @@ The bodies follow Spark's results:
 **Errors.** IRIS reports a failed function as SQLCODE -149 with the ObjectScript error: `<REGULAR EXPRESSION>` becomes "invalid regular expression", `<ZMBGROUP>` "the group index is beyond the pattern's groups", both `MborobakExecutionError` at the action, where Spark also fails at run time.
 
 **Dialect.** ICU's syntax is Java's for classes, quantifiers, groups, anchors, lookaround, flags such as `(?i)`, and `$1` and `\$` in replacements. Its `\w`, `\d`, `\b` and `\p{Alpha}` are Unicode-aware where Java's are ASCII only: `regexp_replace('é1', '\\w', '_')` gives `'__'` here and `'é_'` in Spark (matrix REGEX-07).
+
+### 7.17 Spark SQL statements (release 0.3)
+
+With `mborobak.sql.dialect = "spark"`, `session.sql(query)` parses a Spark SQL `SELECT` (`src/mborobak/sparksql.py`) and builds it from DataFrame operations: no IRIS SQL is written for it, so every rule of this document applies as it does to the DataFrame API, and the statement becomes one IRIS query. The parser extends the expression parser of §7.13 with the statement grammar of API contract §3.5, `?` and `:name` markers (literal values, as Spark binds them) and `t.*`.
+
+| Clause | DataFrame operation |
+|--------|---------------------|
+| `FROM t [alias]`, `FROM (query) alias`, a CTE name | `session.table(t)`, the query's DataFrame, the CTE's; `.alias(alias)` (a CTE and a table without alias are qualified by their name) |
+| `JOIN … ON c`, `USING (k)`, `,`, `CROSS JOIN`, `LEFT SEMI`, `LEFT ANTI` | `join(other, c, how)`, `join(other, ["k"], how)`, `crossJoin`; semi and anti per §7.15 |
+| `WHERE c` | `filter(c)` |
+| select list without aggregates | `select(items)`; `*` and `t.*` expand to the columns whose qualifier is `t` |
+| `ORDER BY` of such a select | `orderBy` **before** `select`, after replacing ordinals and select aliases by their expressions, so it may use columns the select drops (the order survives the projection, matrix ORD-06) |
+| `DISTINCT` | `select(...).distinct()`, then `orderBy` over output columns |
+| `GROUP BY`, `HAVING`, aggregates | see below |
+| `UNION ALL`, `UNION [DISTINCT]` | `union`, plus `distinct()`; `ORDER BY` over output names and ordinals |
+| `LIMIT n` | `limit(n)` |
+
+**Aggregation.** The grouping keys are the `GROUP BY` expressions, with ordinals and select aliases replaced by their expressions (an alias only when no input column has that name, as Spark's `groupByAliases`), or for `GROUP BY ALL` the select items without aggregates. Each distinct aggregate call in the select list, `HAVING` and `ORDER BY` is computed once: `groupBy(key AS __mborobak_g0, …).agg(agg AS __mborobak_a0, …)`. Then the select list, `HAVING` and `ORDER BY` are rewritten top-down, replacing every key expression and aggregate call (compared with names case-insensitive) by its hidden column, and become `filter`, `orderBy` and `select(... AS <Spark's name>)`. An expression left that is neither (a column not grouped) fails to resolve, reported as an `AnalysisError`. Without aggregates, `GROUP BY k` is `select(k).distinct()`. The compiler merges all of this into one `SELECT … GROUP BY … HAVING … ORDER BY` (§9.2).
+
+**`{name}` placeholders** (PySpark's `spark.sql(query, df=df)`) are filled before parsing: a DataFrame becomes a CTE-like relation named `__mborobak_<name>`, other values their text.
 
 ## 8. Optional rewrites
 

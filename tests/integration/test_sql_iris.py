@@ -99,3 +99,15 @@ def test_regex_functions_are_installed_on_first_use(session, raw_connection):
     fresh = MborobakSession.builder.connection(raw_connection).create()  # finds it, creates nothing
     assert fresh.table("MborobakTest.Words").filter(F.col("w").rlike("an")).count() == 2
     assert len(fresh.installFunctions()) == 6
+
+
+def test_spark_dialect_against_iris_tables(session):
+    session.conf.set("mborobak.sql.dialect", "spark")
+    df = session.sql("SELECT c.country, count(*) AS orders, sum(s.amount) AS revenue "
+                     "FROM MborobakTest.Sales s JOIN MborobakTest.Customers c ON s.customer_id = c.id "
+                     "WHERE s.status = 'PAID' GROUP BY c.country ORDER BY revenue DESC")
+    assert df.columns == ["country", "orders", "revenue"]
+    assert [tuple(r) for r in df.collect()] == [("us", 1, D("300.00")), ("BR", 2, D("100.50"))]  # 'PAID' only, exact
+    assert session.lastExecution.data_queries == 1
+    top = session.sql("SELECT Sales.id FROM MborobakTest.Sales WHERE Sales.amount > :m ORDER BY 1 LIMIT 2", {"m": 50})
+    assert [r.id for r in top.collect()] == [1, 3]

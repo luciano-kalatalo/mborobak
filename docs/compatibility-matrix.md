@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.9 · 2026-11-20
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.10 · 2026-11-20
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -208,7 +208,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 
 | ID | Behavior | PySpark | Mborobak | Status | Source |
 |----|----------|---------|----------|--------|--------|
-| API-01 | SQL dialect of `session.sql()` | Spark SQL | IRIS SQL | Known difference by design | API contract §3.5 |
+| API-01 | SQL dialect of `session.sql()` | Spark SQL | IRIS SQL by default; Spark SQL with `mborobak.sql.dialect = "spark"` (0.3, §2.19) | Known difference by default; Same with the setting | API contract §3.5 |
 | API-02 | Named `sql()` parameters (`args` as a dict, `:name` markers) | Supported | Supported (0.2.x): bound as `?` parameters | Same | API contract §3.5 |
 | API-03 | `filter("x > 1")`, `where(...)`, `selectExpr`, `F.expr` | Supported | Supported (0.2): Spark SQL expressions, §2.15 | Same | API contract §4.1, §6.4 |
 | API-04 | `cache()`, `persist()` | Caches | Raises `UnsupportedOperationError` | Unsupported | API contract §4.6 |
@@ -361,6 +361,22 @@ The dataset `dates` (§3.2) has a leap day, month ends, the year boundary where 
 | REGEX-08 | `split`, `regexp_extract_all` | Arrays | — | `UnsupportedOperationError`: no array type | Unsupported | doc |
 | REGEX-09 | Functions created on first use (`CREATE FUNCTION` permission), or by `session.installFunctions()` | Nothing to install | — | One lookup per session, then one `CREATE FUNCTION` per missing function | Mborobak only | P-k |
 
+### 2.19 Spark SQL statements (release 0.3)
+
+With `mborobak.sql.dialect = "spark"`, `sql()` takes Spark SQL `SELECT` statements and builds them from DataFrame operations ([compiler spec](compiler-spec.md) §7.17). The differential tests run the same statement on both sides, with the datasets as `{t}` placeholders.
+
+| ID | Behavior | PySpark | Mborobak | Status | Evidence |
+|----|----------|---------|----------|--------|----------|
+| SQL-01 | `SELECT *`, expressions, aliases (`AS` or bare), `CAST`, functions, `RLIKE`, `WHERE`, table aliases; default names | Spark's names and types | DataFrame operations | Same | diff |
+| SQL-02 | Joins: `[INNER]`, `LEFT/RIGHT/FULL [OUTER]`, `CROSS`, `LEFT SEMI`, `LEFT ANTI`, comma; `ON`, `USING`; `t.*` | As described | Same | Same | diff |
+| SQL-03 | `GROUP BY` expression, select alias, ordinal, `ALL`; `HAVING`; global aggregates; aggregates of expressions; `ORDER BY` an aggregate alias | As described | Keys and aggregates computed once, rewritten (spec §7.17) | Same | diff |
+| SQL-04 | `ORDER BY` alias, ordinal, `NULLS LAST`, a column the select drops; `DISTINCT`; `LIMIT` | As described | `orderBy` before `select` | Same | diff |
+| SQL-05 | `UNION ALL`, `UNION`, `UNION DISTINCT` with `ORDER BY` and `LIMIT` | As described | `union` + `distinct` | Same | diff |
+| SQL-06 | `WITH` (several, one using another), subqueries in `FROM`, a CTE joined with itself | As described | Same | Same | diff |
+| SQL-07 | `?` and `:name` parameters | Literal values | Same | Same | diff |
+| SQL-08 | `CREATE`, `INSERT`, `SELECT` without `FROM`, `EXCEPT`, `OFFSET`, window functions in an aggregating select | Supported | `UnsupportedOperationError` | Unsupported | diff |
+| SQL-09 | A column neither grouped nor aggregated; an unknown column; a `GROUP BY` ordinal out of range | `AnalysisException` | `AnalysisError` | Same | diff |
+
 ## 3. Differential test suite
 
 ### 3.1 How a row is verified
@@ -413,7 +429,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 - Casting `double` and `decimal` values to string gives IRIS's text, not Spark's (CAST-12, CAST-13).
 - `union` is stricter about mixing types (UNI-03).
 - Timestamps have no time zone (TIME-01); `to_timestamp`, `date_trunc` and `current_timestamp` return `timestamp_ntz` (TIME-05).
-- `session.sql()` takes IRIS SQL, where `GROUP BY 1` means the constant 1 (API-01, GRP-01).
+- `session.sql()` takes IRIS SQL by default, where `GROUP BY 1` means the constant 1 (API-01, GRP-01); with `mborobak.sql.dialect = "spark"` it takes Spark SQL `SELECT` statements (§2.19).
 - With `stringSemantics="iris"`, string comparison, grouping and sorting follow IRIS's case-insensitive rules (§2.1).
 - `createDataFrame` infers `timestamp_ntz` for `datetime` values (CDF-07) and makes missing pandas strings NULL (CDF-08).
 - Writing tables: decimals keep at most 19 digits before the point (WRITE-07); column names with `.`, `,` or `^`, which some default names contain, need an alias (WRITE-09); file writers (`save`, `parquet`, `csv`) are not supported (WRITE-12).

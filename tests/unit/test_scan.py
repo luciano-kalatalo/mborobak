@@ -165,7 +165,7 @@ def test_notebook_cells_magics_and_locations():
         {"cell_type": "code", "source": "print 'python 2'"},
     ]}, "nb.ipynb")
     r = {f.label: f for f in report.findings.values()}
-    assert r["%sql cell"].status == PLANNED and r["%sql cell"].release == "0.3"
+    assert r["%sql cell"].status == SUPPORTED and "dialect" in r["%sql cell"].note
     assert str(r["%sql cell"].locations[0]) == "nb.ipynb: cell 3, line 1"
     # imports carry over from cell to cell; a chained call reports its own line
     assert str(r["F.col"].locations[0]) == "nb.ipynb: cell 4, line 2"
@@ -199,7 +199,7 @@ def test_sample_notebook_and_cli(capsys, tmp_path):
     report = scan_paths([SAMPLE])
     assert not report.warnings
     totals = report.totals()
-    assert totals[SUPPORTED] > 0 and totals[PLANNED] > 0 and totals[OUT_OF_SCOPE] > 0
+    assert totals[SUPPORTED] > 0 and totals[OUT_OF_SCOPE] > 0  # nothing left planned since 0.3
 
     assert main([str(SAMPLE), "--format", "json"]) == 0
     data = json.loads(capsys.readouterr().out)

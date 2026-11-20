@@ -344,6 +344,7 @@ Exit criterion: at least 80% of the calls in representative Databricks notebooks
 
 **Release 0.3: Advanced Execution.** Research and prototypes for UDF/UDAF, vectorized execution, external storage and parallelism, and:
 
+- **Spark SQL statements in `sql()`** (done): `mborobak.sql.dialect = "spark"` builds Spark SQL `SELECT` statements from DataFrame operations (compiler spec §7.17).
 - **Regular expressions** (`rlike`, `regexp_replace`, `regexp_extract`, done): IRIS SQL has no regex functions, so Mborobak creates ICU-regex SQL functions (`CREATE FUNCTION … LANGUAGE OBJECTSCRIPT`) on first use (POC readiness plan, tier 3; compiler spec §7.16).
 - **Columnar (Arrow-style) result transfer.** Today the IRIS driver returns rows, and every value becomes a Python object before pandas copies it again. At 1M rows of four columns this costs about 1.7 s, against 0.85 s for the raw driver ([benchmark report](benchmark-report-2026-11-18.md) §5). PySpark's Arrow path cut the same kind of transfer from about 20 s to 0.7 s in published tests, because whole columns arrive as typed memory blocks that pandas uses with little or no copying. The goal is a columnar path for `toPandas()` (and an Arrow result for other tools such as Polars and DuckDB). Candidate routes, to be evaluated in this order:
   1. Check whether the IRIS Python driver can return results in a columnar or Arrow form; if so, use it.

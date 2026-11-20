@@ -58,7 +58,7 @@ Script [`probes/function_probe.py`](../probes/function_probe.py), raw output [`p
 ### Tier 3: needs research (release 0.3)
 
 - ~~**Regular expressions** (`rlike`, `regexp_replace`, `regexp_extract`). IRIS SQL has no regex functions.~~ Done: `CREATE FUNCTION … LANGUAGE OBJECTSCRIPT` with ICU's `$LOCATE` and `%Regex.Matcher`, created on first use (decided 2026-11-20, with `session.installFunctions()` for administrators), plus `regexp_count`, `regexp_substr`, `regexp_instr` (compiler spec §7.16, matrix §2.18).
-- **Spark SQL in `session.sql()`:** translating Spark's SQL dialect to IRIS SQL, beyond the expression subset of tier 1.
+- ~~**Spark SQL in `session.sql()`:** translating Spark's SQL dialect to IRIS SQL, beyond the expression subset of tier 1.~~ Done: `mborobak.sql.dialect = "spark"` parses `SELECT` statements into DataFrame operations (compiler spec §7.17, matrix §2.19); `%sql` cells run as `spark.sql("…")`.
 - **Columnar result transfer** (already on the 0.3 roadmap).
 
 ### Out of reach for Mborobak, to state up front in POCs
@@ -110,3 +110,5 @@ With writing tables (step 7), in-scope coverage today is **93%** on the dbdemos 
 With semi and anti joins, `unionByName`, `spark.read.table` and named `sql()` parameters, in-scope coverage today is **94%** on the dbdemos set (81% of all calls) and **97%** on the sample. In both, what remains is tier 3 (`%sql` cells, regular expressions) and two unscheduled functions (`rand`, `sha1`).
 
 With regular expressions (tier 3, first item), in-scope coverage today is **95%** on the dbdemos set (82% of all calls) and **99%** on the sample. What remains is Spark SQL in `%sql` cells and `spark.sql()`, and `rand` and `sha1`.
+
+With Spark SQL statements, in-scope coverage today is **99%** on the dbdemos set (85% of all calls) and **100%** on the sample. The only calls left are `rand` and `sha1`, not scheduled; the rest is platform code a POC replaces (`display`, file and stream reads, MLlib).

@@ -45,7 +45,7 @@ IRIS is fast at SQL, and many data teams think in DataFrames. Mborobak gives the
 
 | Area | Supported |
 |------|-----------|
-| Sources | `session.table(name)`, `session.read.table(name)`, `session.sql(query, args)` (IRIS SQL with `?` or `:name` parameters), `session.createDataFrame(rows or pandas, schema)` (loaded into a temporary IRIS table) |
+| Sources | `session.table(name)`, `session.read.table(name)`, `session.sql(query, args)` (IRIS SQL, or Spark SQL `SELECT` statements with `mborobak.sql.dialect = "spark"`; `?` or `:name` parameters), `session.createDataFrame(rows or pandas, schema)` (loaded into a temporary IRIS table) |
 | Transformations | `select`, `filter`/`where`, `withColumn(s)`, `withColumnRenamed`, `drop`, `orderBy`/`sort`, `limit`, `distinct`, `alias` |
 | Joins | inner, left, right, full, cross, semi, anti; on a column name, a list of names, or conditions; self-joins via `alias()` |
 | Aggregation | `groupBy().agg()`, `count`, `sum`, `avg`/`mean`, `min`, `max`, `countDistinct`; `agg({"x": "sum"})`; filters after `agg()` |
@@ -203,7 +203,7 @@ Version 0.2.2. Release 0.1 was built for the InterSystems Open Exchange contest 
 
 - **0.2, Analytical functions (released):** for proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner; null, string, math, date and time functions; `fillna`/`dropna`; window functions and `dropDuplicates`; `F.expr`/`selectExpr`/`filter("…")`.
 - **0.2.x, Pipelines:** writing tables (`saveAsTable`, `insertInto`, released in 0.2.1); semi and anti joins, `unionByName`, `spark.read.table`, named `sql()` parameters and `createDataFrame` (released in 0.2.2).
-- **0.3, Advanced execution:** regular expressions (done, through ICU-regex SQL functions in IRIS), Spark SQL statements in `sql()`, **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
+- **0.3, Advanced execution:** regular expressions (done, through ICU-regex SQL functions in IRIS), Spark SQL statements in `sql()` (done), **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
 - **1.0, Production readiness:** stable API, documented compatibility, robustness testing, observability, security, and CI on every supported Python version.
 
 ## License
