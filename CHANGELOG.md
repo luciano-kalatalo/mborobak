@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 (2026-11-20)
+
+The rest of tier 2 of the [POC readiness plan](docs/poc-readiness-plan.md): `createDataFrame`, semi and anti joins, `unionByName`, `spark.read.table` and named `sql()` parameters. On the public Databricks notebooks, 94% of the PySpark calls that matter in a POC are now supported (93% in 0.2.1); what remains is planned for 0.3.
 
 - `createDataFrame(data, schema=None)`: local rows (tuples, lists, `Row`s, dicts) or a pandas DataFrame, with a `StructType`, a DDL string, column names or inferred types, checked as PySpark does. The rows go into a temporary IRIS table that only this connection sees; `stop()` drops it. The result joins with IRIS tables and can be saved with `df.write` (compiler spec §9.8, API contract §3.6, matrix §2.17).
 - Semi and anti joins: `join(other, on, "left_semi")` and `"left_anti"` (with the aliases `semi`, `leftsemi`, `anti`, `leftanti`), by condition or by column names. They compile to `[NOT] EXISTS`, so a left row never repeats (compiler spec §7.15, matrix JOIN-05).

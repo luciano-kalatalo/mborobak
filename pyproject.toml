@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mborobak"
-version = "0.2.1"
+version = "0.2.2"
 description = "Lazy, PySpark-style DataFrames that compile to InterSystems IRIS SQL"
 readme = "README.md"
 license = "MIT"

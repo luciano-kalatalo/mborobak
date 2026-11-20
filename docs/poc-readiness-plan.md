@@ -75,7 +75,7 @@ Reading files and Delta tables (`spark.read`), Databricks-specific APIs (`displa
 6. ~~Release 0.2~~ Released as 0.2.0 on 2026-11-20. Then tier 2 as POCs ask for it, in 0.2.x releases.
 7. ~~Writing tables~~ Done (tier 2), released in 0.2.1 on 2026-11-20: `saveAsTable` with every save mode, and `insertInto`.
 8. ~~Semi and anti joins, `unionByName`, named `sql()` parameters~~ Done (tier 2), with `spark.read.table`.
-9. ~~`createDataFrame`~~ Done. Tier 2 is complete; what remains is tier 3 (release 0.3).
+9. ~~`createDataFrame`~~ Done. Steps 8 and 9 were released in 0.2.2 on 2026-11-20. Tier 2 is complete; what remains is tier 3 (release 0.3).
 
 ## 5. First scan: public Databricks notebooks (2026-11-19)
 
