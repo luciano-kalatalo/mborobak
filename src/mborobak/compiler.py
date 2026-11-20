@@ -848,10 +848,12 @@ class Renderer:
         if isinstance(f, E.WindowFunc):
             name = f.name
             if swap and name in windows.VALUE:
-                name = "last" if name == "first" else "first"
+                name = {"first": "last", "last": "first", "first_value": "last_value",
+                        "last_value": "first_value"}[name]
             sql = {"row_number": "ROW_NUMBER", "rank": "RANK", "dense_rank": "DENSE_RANK",
                    "percent_rank": "PERCENT_RANK", "cume_dist": "CUME_DIST", "ntile": "NTILE",
-                   "first": "FIRST_VALUE", "last": "LAST_VALUE"}[name]
+                   "first": "FIRST_VALUE", "last": "LAST_VALUE", "first_value": "FIRST_VALUE",
+                   "last_value": "LAST_VALUE"}[name]
             if name == "ntile":
                 call = f"NTILE({int(f.args[0].value)})"
             elif name in windows.VALUE:

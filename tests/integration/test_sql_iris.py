@@ -104,7 +104,9 @@ def test_regex_functions_are_installed_on_first_use(session, raw_connection):
     assert session._functions_ready == {"RegexpLike1"}
     fresh = MborobakSession.builder.connection(raw_connection).create()  # finds it, creates nothing
     assert fresh.table("MborobakTest.Words").filter(F.col("w").rlike("an")).count() == 2
-    assert len(fresh.installFunctions()) == 6
+    from mborobak.irisfuncs import FUNCTIONS
+
+    assert len(fresh.installFunctions()) == len(FUNCTIONS)  # every body compiles in IRIS
 
 
 def test_spark_dialect_against_iris_tables(session):

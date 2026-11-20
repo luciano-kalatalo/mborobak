@@ -16,7 +16,7 @@ from .errors import AnalysisError, UnsupportedOperationError
 RANKING = {"row_number": "row_number", "rank": "RANK", "dense_rank": "DENSE_RANK",
            "percent_rank": "PERCENT_RANK", "cume_dist": "cume_dist", "ntile": "ntile"}
 OFFSET = ("lag", "lead")
-VALUE = ("first", "last")
+VALUE = ("first", "last", "first_value", "last_value")
 
 ROWS_TO_CURRENT = E.Frame("rows", None, 0)
 RANGE_TO_CURRENT = E.Frame("range", None, 0)

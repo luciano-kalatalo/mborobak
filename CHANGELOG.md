@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- More functions: `md5`, `sha1`, `sha2`, `crc32`, `levenshtein`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `cot`, `degrees`, `radians`, `pi`, `dayname`, `monthname`, `conv`, `parse_url`, `to_utc_timestamp`, `from_utc_timestamp`, `first_value`, `last_value`, with Spark's results where IRIS's functions raise or differ. Hashes and `levenshtein` run in ObjectScript and `conv`, `parse_url` and the time-zone conversions in embedded Python, all as SQL functions created on first use (compiler spec §7.19, matrix FUN-27 to FUN-34).
 - Statistics: `stddev`, `std`, `stddev_samp`, `stddev_pop`, `variance`, `var_samp`, `var_pop`, `corr`, `covar_pop`, `covar_samp`, `skewness`, `kurtosis`, and exact `median` and `percentile`, with Spark's results including NaN and single-row groups. IRIS's own `STDDEV_SAMP` and `VAR_POP` are used where they exist; the rest are emulated (compiler spec §7.18, matrix §2.20).
 - `describe()` and `summary()`, with Spark's statistics and number format.
 - `replace` and `na.replace`, `transform`, `toDF`, `createOrReplaceTempView`/`createTempView` (found by `table()` and Spark SQL), `isEmpty`, `tail`, `Column.try_cast`, `catalog.listTables` and `catalog.dropTempView`.

@@ -494,6 +494,24 @@ IRIS SQL has `STDDEV_SAMP`, `STDDEV_POP`, `VAR_SAMP` and `VAR_POP` (plain `STDDE
 - **`median`** and **`percentile(col, p)`** are rewritten by `GroupedData.agg` (also reached by `select`): a projection adds, per input column, `ROW_NUMBER() OVER (PARTITION BY keys ORDER BY x NULLS LAST)` (NaN sorts largest, §7.9) and `COUNT(x) OVER (PARTITION BY keys)`; a second projection marks the rows at ranks `⌊pos⌋+1` and `⌊pos⌋+2` of the 0-based position `pos = (n − 1)·p` (decimal arithmetic, and `rn − 1 ≤ pos < rn` instead of `FLOOR`, whose overflow guard would multiply the SQL); the aggregate is `v_low + frac·(v_high − v_low)`, or `v_low` when `frac` is 0. The marked values are summed, not `MAX`ed: IRIS's `MAX` skips NaN (matrix FP-06). Each percentile costs about 45 parameters, so a few dozen fit in one query.
 - **`describe()` and `summary()`** compute `count`, `avg`, `stddev`, `min`, a NaN-aware `max` and nearest-rank percentiles (Spark's `percentile_approx`, which returns a value of the column, exactly here) in one aggregate query per 20 columns (each percentile about 11 parameters), format the values in Python as Spark casts them to text (`java_double` for doubles), and load the small result with `createDataFrame` (§9.8). String columns are averaged through `try_cast` to double: a cast that gives NULL for invalid text, the same validity check as §7.7 with `ELSE NULL` instead of the error trigger.
 
+### 7.19 Hashes, edit distance, trigonometry, conv, URLs and time zones (release 0.3.x)
+
+From the same notebook scan as §7.18. IRIS SQL has the trigonometry, so those compile to SQL; the rest become functions in the `Mborobak` schema, created on first use as in §7.16. ObjectScript where it is fast and exact; embedded Python (`LANGUAGE PYTHON`) where Python's libraries are: arbitrary-size integers, URL parsing, time-zone data (IRIS 2026.2 ships `zoneinfo` with its data).
+
+| Spark | IRIS |
+|-------|------|
+| `sin`, `cos`, `tan`, `atan`, `atan2`, `cot` | IRIS's functions over the input cast to `DOUBLE`, with Spark's results where IRIS raises: NaN for ±∞, `cot(0)` = ∞, `atan(±∞)` = ±π/2, and NaN for NaN in `atan2` (IRIS gives 0) |
+| `asin`, `acos` | NaN outside [−1, 1] (IRIS raises) |
+| `degrees`, `radians`, `pi` | Multiplication by Java's constants `57.29577951308232` and `0.017453292519943295`; π as a `DOUBLE` parameter (`PI()` is a `NUMERIC`) |
+| `dayname`, `monthname` | `SUBSTRING(DAYNAME(d), 1, 3)` |
+| `md5`, `sha1`, `sha2`, `crc32` | `Md5Hex1`, `Sha1Hex1`, `Sha2Hex1(s, bits)`: `$SYSTEM.Encryption` over `$ZCONVERT(s, "O", "UTF8")`, as lowercase hex; `Crc32_1`: `$ZCRC(…, 7)`. Strings only, as Spark's take binary |
+| `levenshtein(a, b[, t])` | `Levenshtein1`, two rows of the edit-distance table; `CASE WHEN d > t THEN -1 ELSE d END` |
+| `conv(num, from, to)` | `Conv1` (Python): digits up to the first invalid one, unsigned 64-bit for a positive target base and signed for a negative one; an overflow raises (`MborobakArithmeticError`, as Spark's ANSI error) |
+| `parse_url(url, part[, key])` | `ParseUrl1` (Python, `urllib.parse`) with Java `URI`'s rules: an opaque URI (`mailto:a@b`) has no path, an empty path is `''`, characters outside RFC 3986 make the URL invalid (an error, as Spark's); the key form is Spark's `(&|^)key=([^&]*)` |
+| `to_utc_timestamp`, `from_utc_timestamp` | `UtcShift1` (Python, `zoneinfo`): region names, `UTC`/`GMT`, offsets such as `+05:30`. A local time in a daylight-saving gap or overlap takes the offset before the change, which is the instant Java's adjustment gives |
+
+Python functions get a SQL NULL as `''` and an empty string as `chr(0)`, and a returned `''` becomes NULL, so their NULLs are handled in SQL before the call, and an empty result is returned as `chr(0)`. Function bodies avoid `?` and `:digit` outside quoted strings, which the driver reads as parameters.
+
 ## 8. Optional rewrites
 
 Each rewrite has a name, a precondition and a session switch (`optimizer.<name>`, default on). The test suite runs every test with all rewrites on and with all off and compares results (scope §6.10).

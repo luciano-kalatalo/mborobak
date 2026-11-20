@@ -645,4 +645,154 @@ def _register_regex(R: dict) -> None:
     R["regexp_instr"] = Spec(_t_regex(IntegerType()), _r_regex("RegexpInstr1"))
 
 
+
+# --------------------------------------------------------------------------- more functions (compiler spec §7.19)
+
+_DOUBLE_MAX = "1.7976931348623157E308"
+
+
+def _irisfunc(r, name: str, *args: str) -> str:
+    from . import irisfuncs
+
+    r.c.functions.add(name)
+    return irisfuncs.call(name, *args)
+
+
+def _t_string_to(result: DataType):
+    def typer(e, args, op):
+        for t, _ in args[:1]:
+            if not isinstance(t, (StringType, NullType)):
+                _fail(e.name, "a string (binary data is not supported)", t, op)
+        return result, args[0][1]
+    return typer
+
+
+def _r_hash(name: str):
+    def render(r, e):
+        extra = [r.value(a) for a in e.args[1:]]
+        return _irisfunc(r, name, r.value(e.args[0]), *extra)
+    return render
+
+
+def _t_levenshtein(e, args, op):
+    for t, _ in args[:2]:
+        _string("levenshtein", t, op)
+    return IntegerType(), any(n for _, n in args[:2])
+
+
+def _r_levenshtein(r, e):
+    def distance() -> str:
+        return _irisfunc(r, "Levenshtein1", r.value(e.args[0]), r.value(e.args[1]))
+    if len(e.args) == 2:
+        return distance()
+    d1 = distance()
+    limit = r.value(e.args[2])
+    d2 = distance()
+    return f"CASE WHEN {d1} > {limit} THEN -1 ELSE {d2} END"  # Spark: -1 beyond the threshold
+
+
+def _r_trig(sql: str, low: float | None = None, high: float | None = None, inf=None):
+    """IRIS raises errors where Spark returns NaN: outside [low, high] (asin, acos) and at infinity (sin…)."""
+    def render(r, e):
+        x = _double(r, e.args[0])
+        text = "CASE"
+        if low is not None:
+            text += f" WHEN {x()} < {low} OR {x()} > {high} THEN {_special(r, math.nan)}"
+        if inf is None:
+            text += f" WHEN {x()} > {_DOUBLE_MAX} OR {x()} < -{_DOUBLE_MAX} THEN {_special(r, math.nan)}"
+        elif inf != "pass":
+            text += (f" WHEN {x()} > {_DOUBLE_MAX} THEN {_special(r, inf)}"
+                     f" WHEN {x()} < -{_DOUBLE_MAX} THEN {_special(r, -inf)}")
+        return f"{text} ELSE {sql.format(x=x())} END"
+    return render
+
+
+def _r_cot(r, e):
+    x = _double(r, e.args[0])
+    return (f"CASE WHEN {x()} = 0 THEN {_special(r, math.inf)} "
+            f"WHEN {x()} > {_DOUBLE_MAX} OR {x()} < -{_DOUBLE_MAX} THEN {_special(r, math.nan)} ELSE COT({x()}) END")
+
+
+def _r_atan2(r, e):
+    y, x = _double(r, e.args[0]), _double(r, e.args[1])
+    return f"CASE WHEN {y()} <> {y()} OR {x()} <> {x()} THEN {_special(r, math.nan)} ELSE ATAN2({y()}, {x()}) END"
+
+
+def _r_scale(factor: float):
+    """degrees and radians multiply by Java's constants (Math.toDegrees, Math.toRadians)."""
+    return lambda r, e: f"({_double(r, e.args[0])()} * {_special(r, factor)})"
+
+
+def _t_pi(e, args, op):
+    return DoubleType(), False
+
+
+def _t_conv(e, args, op):
+    t = args[0][0]
+    if not (isinstance(t, (StringType, NullType)) or t.is_integral):
+        _fail("conv", "a string or an integer", t, op)
+    return StringType(), True
+
+
+def _r_conv(r, e):
+    s = _x(r, e.args[0], StringType())
+    return (f"CASE WHEN {s()} IS NULL THEN NULL ELSE "
+            f"{_irisfunc(r, 'Conv1', s(), r.value(e.args[1]), r.value(e.args[2]))} END")
+
+
+def _t_parse_url(e, args, op):
+    for t, _ in args:
+        _string("parse_url", t, op)
+    return StringType(), True
+
+
+def _r_parse_url(r, e):
+    u, part = _x(r, e.args[0]), _x(r, e.args[1])
+    guard = f"{u()} IS NULL OR {part()} IS NULL"
+    url, which = u(), part()
+    key = r.value(e.args[2]) if len(e.args) > 2 else "NULL"  # after the others: parameters in text order
+    return f"CASE WHEN {guard} THEN NULL ELSE {_irisfunc(r, 'ParseUrl1', url, which, key)} END"
+
+
+def _t_utc(e, args, op):
+    from .dates import _datelike
+
+    _datelike(e.name, args[0][0], op)
+    _string(e.name, args[1][0], op)
+    return TimestampNTZType(), True
+
+
+def _r_utc(to_utc: bool):
+    def render(r, e):
+        ts, tz = _x(r, e.args[0], TimestampNTZType()), _x(r, e.args[1])
+        text = f"CAST({ts()} AS VARCHAR(40))"
+        shifted = _irisfunc(r, "UtcShift1", text, tz(), "1" if to_utc else "0")
+        return f"CASE WHEN {ts()} IS NULL OR {tz()} IS NULL THEN NULL ELSE CAST({shifted} AS TIMESTAMP) END"
+    return render
+
+
+def _register_more(R: dict) -> None:
+    R["md5"] = Spec(_t_string_to(StringType()), _r_hash("Md5Hex1"))
+    R["sha1"] = Spec(_t_string_to(StringType()), _r_hash("Sha1Hex1"))
+    R["sha2"] = Spec(_t_string_to(StringType()), _r_hash("Sha2Hex1"))
+    R["crc32"] = Spec(_t_string_to(LongType()), _r_hash("Crc32_1"))
+    R["levenshtein"] = Spec(_t_levenshtein, _r_levenshtein)
+    R["sin"] = Spec(_t_double, _r_trig("SIN({x})"), label="SIN")
+    R["cos"] = Spec(_t_double, _r_trig("COS({x})"), label="COS")
+    R["tan"] = Spec(_t_double, _r_trig("TAN({x})"), label="TAN")
+    R["asin"] = Spec(_t_double, _r_trig("ASIN({x})", -1, 1, inf="pass"), label="ASIN")
+    R["acos"] = Spec(_t_double, _r_trig("ACOS({x})", -1, 1, inf="pass"), label="ACOS")
+    R["atan"] = Spec(_t_double, _r_trig("ATAN({x})", inf=math.pi / 2), label="ATAN")
+    R["cot"] = Spec(_t_double, _r_cot, label="COT")
+    R["atan2"] = Spec(_t_double, _r_atan2, label="ATAN2")
+    R["degrees"] = Spec(_t_double, _r_scale(57.29577951308232), label="DEGREES")
+    R["radians"] = Spec(_t_double, _r_scale(0.017453292519943295), label="RADIANS")
+    R["pi"] = Spec(_t_pi, lambda r, e: f"CAST({_special(r, math.pi)} AS DOUBLE)", label="PI")
+    R["conv"] = Spec(_t_conv, _r_conv)
+    R["parse_url"] = Spec(_t_parse_url, _r_parse_url)
+    R["to_utc_timestamp"] = Spec(_t_utc, _r_utc(True))
+    R["from_utc_timestamp"] = Spec(_t_utc, _r_utc(False))
+
+
 _register_regex(REGISTRY)
+_register_more(REGISTRY)

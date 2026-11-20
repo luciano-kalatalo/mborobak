@@ -384,6 +384,8 @@ Statistics (compiler spec §7.18, compatibility matrix §2.20). All return `doub
 
 The statistical aggregates over a window (`stddev(x).over(w)`) raise `UnsupportedOperationError`.
 
+More functions (compiler spec §7.19, compatibility matrix FUN-27 to FUN-34): `md5`, `sha1`, `sha2(col, numBits)`, `crc32` (strings), `levenshtein(left, right, threshold=None)`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `cot`, `degrees`, `radians`, `pi`, `dayname`, `monthname`, `conv(col, fromBase, toBase)`, `parse_url(url, part, key=None)`, `to_utc_timestamp(ts, tz)`, `from_utc_timestamp(ts, tz)` (as `timestamp_ntz`), and the window functions `first_value`, `last_value`. The hashes, `levenshtein`, `conv`, `parse_url` and the time-zone conversions run in SQL functions Mborobak creates in the `Mborobak` schema on first use, as regular expressions do.
+
 Regular expressions (0.3, compiler spec §7.16, compatibility matrix §2.18). The pattern syntax is ICU's, which is Java's for nearly every pattern; IRIS runs them in SQL functions Mborobak creates in the schema `Mborobak` the first time a session needs one (`CREATE FUNCTION` permission, or an administrator's `session.installFunctions()`):
 
 | Function | Notes |

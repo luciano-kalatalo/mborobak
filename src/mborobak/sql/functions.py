@@ -753,3 +753,87 @@ def percentile(col: Column | str, percentage: float, frequency: int = 1) -> Colu
 
 __all__ += ["stddev", "std", "stddev_samp", "stddev_pop", "variance", "var_samp", "var_pop", "covar_pop",
             "covar_samp", "corr", "skewness", "kurtosis", "median", "percentile"]
+
+
+# more functions (compiler spec §7.19): hashes, edit distance, trigonometry, conv, URLs, time zones
+
+def md5(col: Column | str) -> Column:
+    return _f("md5", _col(col))
+
+
+def sha1(col: Column | str) -> Column:
+    return _f("sha1", _col(col))
+
+
+def sha2(col: Column | str, numBits: int) -> Column:  # noqa: N803
+    if numBits not in (0, 224, 256, 384, 512):
+        raise ValueError("sha2(): numBits must be 0, 224, 256, 384 or 512, as in PySpark")
+    return _f("sha2", _col(col), literal(numBits))
+
+
+def crc32(col: Column | str) -> Column:
+    return _f("crc32", _col(col))
+
+
+def levenshtein(left: Column | str, right: Column | str, threshold: int | None = None) -> Column:
+    args = [_col(left), _col(right)] + ([_int(threshold, "levenshtein", "threshold")] if threshold is not None else [])
+    return _f("levenshtein", *args)
+
+
+def _trig(name: str):
+    def fn(col: Column | str) -> Column:
+        return _f(name, _col_or_value(col))
+    fn.__name__ = name
+    return fn
+
+
+sin, cos, tan, asin, acos, atan, cot, degrees, radians = (_trig(n) for n in (
+    "sin", "cos", "tan", "asin", "acos", "atan", "cot", "degrees", "radians"))
+
+
+def atan2(col1: Any, col2: Any) -> Column:
+    return _f("atan2", _col_or_value(col1), _col_or_value(col2))
+
+
+def pi() -> Column:
+    return _f("pi")
+
+
+def dayname(col: Column | str) -> Column:
+    return _f("dayname", _col(col))
+
+
+def monthname(col: Column | str) -> Column:
+    return _f("monthname", _col(col))
+
+
+def conv(col: Column | str, fromBase: int, toBase: int) -> Column:  # noqa: N803
+    return _f("conv", _col(col), _int(fromBase, "conv", "base"), _int(toBase, "conv", "base"))
+
+
+def parse_url(url: Column | str, partToExtract: Column | str, key: Column | str | None = None) -> Column:  # noqa: N803
+    args = [_col(url), _col(partToExtract)] + ([_col(key)] if key is not None else [])
+    return _f("parse_url", *args)
+
+
+def to_utc_timestamp(timestamp: Column | str, tz: Column | str) -> Column:
+    """The local time ``timestamp`` of zone ``tz`` (``'America/Sao_Paulo'``, ``'+05:30'``), in UTC."""
+    return _f("to_utc_timestamp", _col(timestamp), tz._expr if isinstance(tz, Column) else literal(tz))
+
+
+def from_utc_timestamp(timestamp: Column | str, tz: Column | str) -> Column:
+    """The UTC time ``timestamp``, as local time in zone ``tz``."""
+    return _f("from_utc_timestamp", _col(timestamp), tz._expr if isinstance(tz, Column) else literal(tz))
+
+
+def first_value(col: Column | str, ignoreNulls: Any = None) -> Column:  # noqa: N803
+    return _first_last("first_value", col, bool(ignoreNulls) if not isinstance(ignoreNulls, Column) else True)
+
+
+def last_value(col: Column | str, ignoreNulls: Any = None) -> Column:  # noqa: N803
+    return _first_last("last_value", col, bool(ignoreNulls) if not isinstance(ignoreNulls, Column) else True)
+
+
+__all__ += ["md5", "sha1", "sha2", "crc32", "levenshtein", "sin", "cos", "tan", "asin", "acos", "atan", "cot",
+            "atan2", "degrees", "radians", "pi", "dayname", "monthname", "conv", "parse_url", "to_utc_timestamp",
+            "from_utc_timestamp", "first_value", "last_value"]

@@ -62,6 +62,11 @@ def _t_now(t):
 
 # --------------------------------------------------------------------------- parts
 
+def _t_name(e, args, op):
+    _datelike(e.name, args[0][0], op)
+    return StringType(), args[0][1]
+
+
 def _t_part(kind):
     def typer(e, args, op):
         _datelike(e.name, args[0][0], op)
@@ -407,6 +412,8 @@ def _register() -> None:
                          ("minute", "MINUTE({x})", TS), ("second", "DATEPART('ss', {x})", TS)):
         R[key] = Spec(_t_part(key), _r_part(sql, to))
     R["weekofyear"] = Spec(_t_part("weekofyear"), _r_weekofyear)
+    for key, sql in (("dayname", "DAYNAME"), ("monthname", "MONTHNAME")):  # Spark: 'Sat', 'Jan'
+        R[key] = Spec(_t_name, (lambda fn: lambda r, e: f"SUBSTRING({fn}({_x(r, e.args[0], DATE)()}), 1, 3)")(sql))
     R["date_add"] = Spec(_t_shift, _r_shift("dd"))
     R["date_sub"] = Spec(_t_shift, _r_shift("dd", "-"))
     R["add_months"] = Spec(_t_shift, _r_shift("mm"))

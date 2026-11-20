@@ -83,6 +83,10 @@ def map_error(exc: Exception, sql: str, operation: str | None, candidates: list[
     if sqlcode == -149:  # an SQL function raised (§7.16)
         if "<REGULAR EXPRESSION>" in text:
             message = "invalid regular expression (IRIS uses ICU's syntax, close to Java's)"
+        elif "CONV_OVERFLOW" in text:
+            return MborobakArithmeticError("conv(): the value overflows 64 bits" + hint, operation=operation, **details)
+        elif "INVALID_URL" in text:
+            message = "parse_url(): the URL is invalid"
         elif "<ZMBGROUP>" in text:
             message = "regexp_extract(): the group index is beyond the pattern's groups"
         else:

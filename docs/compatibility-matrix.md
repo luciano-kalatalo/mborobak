@@ -248,6 +248,14 @@ Null, string and math functions, and `fillna`/`dropna`. The dataset `funcs` (§3
 | FUN-24 | `pow` overflow (`pow(10.0, 400.0)`) | Infinity | Fatal error | `MborobakArithmeticError` | Known difference (as NUM-04) | P-e / diff |
 | FUN-25 | Integer overflow in `abs(-2147483648)`, `round(i, -1)` near the maximum | Error (ANSI) | Larger value returned | Passed through | Known difference (as NUM-04) | P-e / diff |
 | FUN-26 | `round`/`bround` of doubles whose shortest form has 16 or 17 digits | Rounds that form | — | Rounds the 15-digit form, which can differ at a `.5` tie | Known difference | P-e / doc |
+| FUN-27 | `md5`, `sha1`, `sha2` (0, 224, 256, 384, 512 bits), `crc32` of strings, accents included | Lowercase hex of the UTF-8 bytes; `crc32` a `bigint` | No hash functions in SQL | ObjectScript `$SYSTEM.Encryption`, `$ZCRC(…, 7)` in `Mborobak` functions (spec §7.19) | Emulated | P-k / diff |
+| FUN-28 | `levenshtein(a, b)`, with a threshold (−1 beyond it) | Edit distance in characters | None | ObjectScript function | Emulated | diff |
+| FUN-29 | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `cot`, `degrees`, `radians`, `pi`, with NaN, ±∞ and out-of-domain values | NaN out of domain; `cot(0)` ∞ | `ASIN(2)`, `SIN(∞)`, `COT(0)` raise; `ATAN2(NaN, 0)` 0; `PI()` a `NUMERIC` | Guards, and Java's constants for `degrees`/`radians` | Emulated; `cot(-0.0)` is +∞ here, −∞ in Spark | diff |
+| FUN-30 | `dayname`, `monthname` | `Sat`, `Jan` | Full names | First three letters | Emulated | diff |
+| FUN-31 | `conv(num, from, to)`: unsigned 64-bit, signed with a negative base, stops at an invalid digit, `''` NULL, overflow | ANSI: overflow is an error | — | Embedded Python function | Emulated | diff |
+| FUN-32 | `parse_url(url, part[, key])`: `HOST`, `PATH`, `QUERY`, `REF`, `PROTOCOL`, `FILE`, `AUTHORITY`, `USERINFO`; opaque URIs (`mailto:`); invalid URLs | Java's `URI`; an error for invalid URLs | — | Embedded Python (`urllib`) with Java's rules for opaque URIs and empty paths; characters outside RFC 3986 are invalid | Emulated | diff |
+| FUN-33 | `to_utc_timestamp`, `from_utc_timestamp` with region names, offsets (`+05:30`), `UTC`, around daylight-saving changes | `timestamp` | No time-zone conversion | Embedded Python (`zoneinfo`); `timestamp_ntz` (TIME-05) | Emulated | diff |
+| FUN-34 | `first_value`, `last_value` over windows | As `first`, `last` | `FIRST_VALUE`, `LAST_VALUE` | As `first`, `last` | Same | diff |
 
 ### 2.13 Window functions and `dropDuplicates` (release 0.2)
 
