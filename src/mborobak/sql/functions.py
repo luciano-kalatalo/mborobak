@@ -376,3 +376,72 @@ __all__ += [
     "abs", "round", "bround", "ceil", "ceiling", "floor", "pow", "power", "sqrt", "exp", "ln", "log",
     "log10", "log2", "log1p", "signum", "sign", "pmod",
 ]
+
+
+# --------------------------------------------------------------------------- window functions (0.2)
+# Each needs .over(window). Ranking functions and lag/lead need an ordered window.
+
+
+def _w(name: str, *args: E.Expr) -> Column:
+    return Column(E.WindowFunc(name, tuple(args)))
+
+
+def row_number() -> Column:
+    return _w("row_number")
+
+
+def rank() -> Column:
+    return _w("rank")
+
+
+def dense_rank() -> Column:
+    return _w("dense_rank")
+
+
+def percent_rank() -> Column:
+    return _w("percent_rank")
+
+
+def cume_dist() -> Column:
+    return _w("cume_dist")
+
+
+def ntile(n: int) -> Column:
+    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+        raise ValueError("ntile() takes a positive integer")
+    return _w("ntile", literal(n))
+
+
+def _offset(name: str, col: Column | str, offset: int, default: Any) -> Column:
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise TypeError(f"{name}() takes an integer offset")
+    if isinstance(default, Column):
+        if not isinstance(default._expr, E.Literal):
+            raise TypeError(f"{name}() takes a constant default; a column default is not supported yet")
+        default = default._expr.value
+    return _w(name, _col(col), literal(offset), literal(default))
+
+
+def lag(col: Column | str, offset: int = 1, default: Any = None) -> Column:
+    return _offset("lag", col, offset, default)
+
+
+def lead(col: Column | str, offset: int = 1, default: Any = None) -> Column:
+    return _offset("lead", col, offset, default)
+
+
+def _first_last(name: str, col, ignorenulls: bool) -> Column:
+    if ignorenulls:
+        raise NotImplementedError(f"{name}(..., ignorenulls=True) is not supported: IRIS has no IGNORE NULLS")
+    return _w(name, _col(col))
+
+
+def first(col: Column | str, ignorenulls: bool = False) -> Column:
+    return _first_last("first", col, ignorenulls)
+
+
+def last(col: Column | str, ignorenulls: bool = False) -> Column:
+    return _first_last("last", col, ignorenulls)
+
+
+__all__ += ["row_number", "rank", "dense_rank", "percent_rank", "cume_dist", "ntile", "lag", "lead", "first", "last"]

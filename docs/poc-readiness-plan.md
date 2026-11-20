@@ -69,7 +69,7 @@ Reading files and Delta tables (`spark.read`), Databricks-specific APIs (`displa
 
 1. Tier 0 scanner, and run it on whatever client or sample notebooks are available, so the next steps follow real usage.
 2. ~~Null, string and math functions~~ Done, with `fillna`/`dropna` (compiler spec §7.10, matrix §2.12). Building them uncovered a fix for 0.1: strings that look like numbers sorted as numbers (matrix STR-16).
-3. Window functions (largest single item).
+3. ~~Window functions~~ Done, with `dropDuplicates` (compiler spec §7.11, matrix §2.13). `rangeBetween` with value offsets stays unsupported: IRIS has no `RANGE` frames.
 4. Date and time functions (after a second, focused IRIS probe on formatting and truncation).
 5. SQL-string expressions and `dropDuplicates`.
 6. Release 0.2, then tier 2 as POCs ask for it.
@@ -95,3 +95,5 @@ The dbdemos set has 197 PySpark calls. What it shows:
 With 0.2 as planned, both samples pass the 80% exit criterion (91% and 93%).
 
 After the null, string and math functions (step 2 of §4), in-scope coverage today is 79% on the dbdemos set (from 78%) and 67% on the sample notebook (from 58%). The dbdemos set gains little because what it still needs is mostly dates, `dropDuplicates` and windows, steps 3 to 5.
+
+After window functions and `dropDuplicates` (step 3), in-scope coverage today is **84%** on the dbdemos set and **88%** on the sample: both now pass the 80% exit criterion. What remains planned in the dbdemos set is date functions (`to_timestamp`, `current_timestamp`, `datediff`: 10 calls) and one SQL-string filter.

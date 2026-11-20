@@ -14,6 +14,7 @@ from .analyzer import (
     check_grouped,
     wider,
     check_no_aggregate,
+    check_no_window,
     find_attr,
     infer,
     make_attr,
@@ -42,7 +43,7 @@ if TYPE_CHECKING:
 __all__ = ["DataFrame", "GroupedData"]
 
 _LATER = {
-    "unionByName": "P1", "dropDuplicates": "P1", "drop_duplicates": "P1", "selectExpr": "P1",
+    "unionByName": "P1", "selectExpr": "P1",
     "toLocalIterator": "P1", "write": "P1", "createOrReplaceTempView": "P1",
 }
 
@@ -127,6 +128,7 @@ class DataFrame:
             raise TypeError("filter() takes a Column condition")
         base, (resolved,), restore = self._resolve_with_missing([condition._expr], op)
         check_no_aggregate(resolved, op, "filter(); filter after agg() instead")
+        check_no_window(resolved, op, "filter()")
         dtype, _ = infer(resolved, op)
         if not isinstance(dtype, (BooleanType, NullType)):
             raise AnalysisError(f"filter() condition must be boolean, got {dtype.simpleString()}", operation=op)
@@ -295,6 +297,25 @@ class DataFrame:
         infer(condition, op)
         return self._with(P.Filter(self._plan, condition))
 
+    def dropDuplicates(self, subset: Any = None) -> "DataFrame":  # noqa: N802
+        """One row per distinct value of ``subset`` (all columns if None, which is ``distinct()``). As in
+        Spark, which row of a duplicate set is kept is not defined."""
+        op = _op("dropDuplicates")
+        if subset is None:
+            return self.distinct()
+        attrs = self._subset(subset, op)
+        if not attrs:
+            return self.distinct()
+        output = self._plan.output
+        keys = tuple(E.AttrRef(a) for a in attrs)
+        rn = E.Attribute(E.new_id(), "mborobak_rn", IntegerType(), False)
+        number = E.WindowExpr(E.WindowFunc("row_number"), keys, tuple(E.SortOrder(k, True, None) for k in keys))
+        numbered = P.Project(self._plan, tuple([(a, E.AttrRef(a)) for a in output] + [(rn, number)]))
+        first = P.Filter(numbered, E.Comparison("=", E.AttrRef(rn), E.Literal(1, IntegerType())))
+        return self._with(P.Project(first, tuple((a, E.AttrRef(a)) for a in output)))
+
+    drop_duplicates = dropDuplicates
+
     @property
     def na(self) -> "DataFrameNaFunctions":
         return DataFrameNaFunctions(self)
@@ -316,6 +337,7 @@ class DataFrame:
         base, resolved, restore = self._resolve_with_missing(orders, op)
         for r in resolved:
             check_no_aggregate(r, op, "orderBy()")
+            check_no_window(r, op, "orderBy()")
         return self._with(_restore(P.Sort(base, tuple(resolved)), restore))
 
     sort = orderBy
@@ -377,6 +399,7 @@ class DataFrame:
         for c in resolved[1:]:
             cond = E.And(cond, c)
         check_no_aggregate(cond, op, "a join condition")
+        check_no_window(cond, op, "a join condition")
         dtype, _ = infer(cond, op)
         if not isinstance(dtype, BooleanType):
             raise AnalysisError(f"join condition must be boolean, got {dtype.simpleString()}", operation=op)
@@ -557,6 +580,7 @@ class GroupedData:
             original = to_column_expr(c)
             resolved = resolve(original, df._plan, operation)
             check_no_aggregate(resolved, operation, "groupBy()")
+            check_no_window(resolved, operation, "groupBy()")
             self._keys.append(make_attr(output_name(original), resolved, operation))
         self._keys = unique_ids(self._keys)
 
@@ -576,6 +600,7 @@ class GroupedData:
                 raise TypeError("agg() takes Columns or a dict")
             original = c._expr
             resolved = resolve(original, self._df._plan, op)
+            check_no_window(resolved, op, "agg(); add them with withColumn() after agg()")
             check_grouped(resolved, key_exprs, op)
             name = output_name(original)
             dtype, nullable = infer(resolved.child if isinstance(resolved, E.Alias) else resolved, op)

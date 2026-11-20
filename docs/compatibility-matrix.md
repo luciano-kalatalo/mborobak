@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.4 · 2026-11-19
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.5 · 2026-11-20
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-f` | Window-function probe 2026-11-20 ([`probes/window_probe.py`](../probes/window_probe.py)), [compiler spec](compiler-spec.md) §12.4 |
 | `P-e` | Scalar-function probe 2026-11-19 ([`probes/scalar_function_probe.py`](../probes/scalar_function_probe.py)), [compiler spec](compiler-spec.md) §12.3 |
 | `doc` | PySpark / Spark SQL documentation for 4.x. **Not yet run** |
 | `diff` | Confirmed by the differential test suite against PySpark 4.3 (§3) |
@@ -124,11 +125,11 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | FP-03 | NaN = NaN, NaN in grouping and joins | True; one group; joins match | Same | Passed through | Same | P-c / diff |
 | FP-04 | NaN in sort order; `-0.0` and `0.0` tie | Largest value (after +∞); ±0 compare equal | After +∞ | Bucket sort key | Emulated (spec §7.9) | P-c / diff |
 | FP-05 | `-Infinity` in sort order | Smallest value | Sorted after all finite values | Bucket sort key | Emulated (spec §7.9) | P-c / diff |
-| FP-06 | `max` with NaN present | NaN | Ignores NaN | Passed through | Known difference: a NaN-aware `max` needs an extra aggregate per column; candidate for P1 | P-c / diff |
+| FP-06 | `max` with NaN present | NaN | Ignores NaN | Passed through | Known difference, in windows too (`max(d).over(w)`): a NaN-aware `max` needs an extra aggregate per column; candidate for P1 | P-c / diff |
 | FP-07 | `min` with NaN present | Ignores NaN (NaN is largest) | Ignores NaN | Passed through | Same | P-c / diff |
 | FP-08 | NaN or ±∞ as a literal (`F.lit(float("nan"))`) | Supported | Fails as SQL text; works as a parameter | Always a parameter | Emulated (spec §9.5) | S§2.7 / diff |
 | FP-09 | `DOUBLE` value `-1E19` in `orderBy` | Normal value | Returned as NULL; NULLs misplaced | Bucket key plus `d + 0` | Emulated (spec §7.9) | P-c / diff |
-| FP-10 | `DOUBLE` value `-1E19` in `groupBy`, `distinct`, `countDistinct` | Normal value | Merged with NULL | Passed through | Known difference (spec O7) | P-c / diff |
+| FP-10 | `DOUBLE` value `-1E19` in `groupBy`, `distinct`, `countDistinct`, window partitions and `dropDuplicates` | Normal value | Merged with NULL | Passed through | Known difference (spec O7) | P-c / diff |
 | FP-11 | Functions returning NaN, NULL or ∞ in Spark (`sqrt(-1)`, `log(0)`, `pow(0, -1)`, `exp(1000)`) | NaN, NULL, ∞ | Fatal error -400 | Out-of-domain inputs routed before the IRIS function (spec §7.10) | Emulated (spec §7.10) | S§2.7, P-e / diff |
 | FP-12 | `+∞` plus `-∞` (`sum`, `avg`, `+` of both infinities) | NaN | Fatal error -400 `<ILLEGAL VALUE>` | `MborobakArithmeticError` | Known difference: emulating it would need a check per row in every sum | P-e / diff |
 
@@ -238,6 +239,28 @@ Null, string and math functions, and `fillna`/`dropna`. The dataset `funcs` (§3
 | FUN-25 | Integer overflow in `abs(-2147483648)`, `round(i, -1)` near the maximum | Error (ANSI) | Larger value returned | Passed through | Known difference (as NUM-04) | P-e / diff |
 | FUN-26 | `round`/`bround` of doubles whose shortest form has 16 or 17 digits | Rounds that form | — | Rounds the 15-digit form, which can differ at a `.5` tie | Known difference | P-e / doc |
 
+### 2.13 Window functions and `dropDuplicates` (release 0.2)
+
+`Window.partitionBy().orderBy().rowsBetween()/rangeBetween()` with `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first`, `last` and the aggregates over a window. The dataset `wins` (§3.2) has ties, NULL keys, NaN, ±∞, `-1E19` and numeric-looking strings. Default column names (`RANK() OVER (PARTITION BY g ORDER BY k ASC NULLS FIRST ROWS BETWEEN …)`) and types are PySpark's and are checked by the same tests. Every window expression is computed as a hidden column of a subquery (compiler spec §7.11).
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| WIN-01 | `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile` | Standard; `int`, or `double` for the ratios | Same functions | Direct | Same | P-f / diff |
+| WIN-02 | `lag`, `lead` with offsets, defaults, a negative offset, offset 0 | Negative `lag` is `lead`; offset 0 is the value | `LAG(x, -1)` fails | `LAG`/`LEAD` with a positive offset; offset 0 renders the value | Emulated (spec §7.11) | P-f / diff |
+| WIN-03 | Aggregates over an ordered window without a frame | RANGE frame: tied rows share the running value | Same default | Frame left implicit | Same | P-f / diff |
+| WIN-04 | Aggregates over a whole partition, `count(*)`, strings in `min`/`max` | Exact string order | Same; strings by collation | `SUBSTRING(MIN(%EXACT(' ' \|\| g)) OVER (…), 2)` | Emulated (§7.1) | P-f / diff |
+| WIN-05 | `rowsBetween` with offsets and unbounded ends | Supported | `ROWS` frames with constant offsets; no parameters | Constants inline | Same | P-f / diff |
+| WIN-06 | `rangeBetween` from unbounded preceding to current row, over the whole partition, and from current row to unbounded following | Supported | **No explicit `RANGE` frames** | Implicit default frame; `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`; the default frame over the reversed order (with `first` and `last` swapped) | Emulated (§7.11) | P-f / diff |
+| WIN-07 † | Order keys: NULL placement, descending, doubles (NaN, ±∞, `-1E19`), strings that look like numbers | Spark's sort order | `NULLS FIRST/LAST` rejected; IRIS's double and string order | The statement's sort rules (§7.1, §7.4, §7.9) inside `OVER` | Emulated (§7.11) | P-f / diff |
+| WIN-08 † | Partition keys: case, NULL | Exact values; NULLs together | Collation merges `'a'` and `'A'` | `PARTITION BY %EXACT(g)` | Emulated (§7.1) | P-f / diff |
+| WIN-09 | `first`, `last` over default and explicit frames | `last` over an ordered window is the current row's value | Same | `FIRST_VALUE`, `LAST_VALUE` | Same | P-f / diff |
+| WIN-10 | Window results in `filter`, `when`, arithmetic, comparisons | Supported (after `withColumn`) | Window in `WHERE` rejected; **inside a `CASE` condition it is silently wrong** | Windows computed in a subquery; expressions read a plain column | Emulated (§7.11) | P-f / diff |
+| WIN-11 | Windows after `limit`, after `groupBy().agg()`, after `orderBy` | Window sees the limited rows; ranks over aggregates; output order not defined after a window | Windows run before `TOP` | Wrapped after `TOP`/`DISTINCT`; over aggregates in the grouped query | Emulated (§7.11) | P-f / diff |
+| WIN-12 | Ranking without `orderBy`, a frame on `lag` or ranking, `countDistinct` over a window, a window in `filter`/`orderBy`/`agg`, `row_number()` without `over`, frame start after end | Analysis errors | — | `AnalysisError` at the call | Same | diff |
+| WIN-13 | `rangeBetween` with value offsets (`rangeBetween(-1, 1)`) or `(currentRow, currentRow)` | Supported | No `RANGE` frames | `UnsupportedOperationError` naming `rowsBetween` or a self-join instead | Unsupported | P-f / diff |
+| WIN-14 | `dropDuplicates(subset)`, `drop_duplicates`, `dropDuplicates()` | One row per key (which one is not defined); without a subset, `distinct()` | — | `ROW_NUMBER() OVER (PARTITION BY keys) = 1`; `DISTINCT` without a subset | Emulated (§7.11) | diff |
+| WIN-15 | `first`/`last` with `ignorenulls=True`; `rowsBetween` without `orderBy` | Supported | No `IGNORE NULLS`; frame rows arbitrary without an order | `NotImplementedError`, `UnsupportedOperationError` | Unsupported | P-f / doc |
+
 ## 3. Differential test suite
 
 ### 3.1 How a row is verified
@@ -265,6 +288,7 @@ Each section of §2 has a small targeted dataset (scope §8.2):
 | `join_keys` | Keys with NULLs, duplicates, unmatched rows on both sides, mixed-case strings |
 | `times` | Dates and timestamps with microseconds, around midnight and month ends |
 | `sales_small` | The scope §5.3 example: a few hundred rows with skew (scope §8.3) |
+| `wins` | Twelve rows in five partitions (`'a'`, `'A'`, `'b'`, `'10'`, `'9'`, NULL) with tied order keys, NULL keys, NaN, ±∞, `-1E19` and `1E300` (§2.13) |
 | `funcs` | Strings with empty values, spaces, a tab, accents and numeric-looking text; doubles with NaN, ±∞, `1E300`, `-1E-300` and `.5` ties; decimals around rounding ties; integers and longs with NULLs (§2.12) |
 
 ### 3.3 Keeping the matrix and tests in step
@@ -282,6 +306,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 - `like` has no escape character (STR-14).
 - Adding `+∞` and `-∞` raises an error instead of giving NaN (FP-12); `pow` overflow raises an error instead of giving infinity (FUN-24); integer overflow in `abs` and `round` is not detected (FUN-25).
 - `initcap` also starts words after tabs (FUN-22); `upper('ß')` stays `'ß'` (FUN-23).
+- `rangeBetween` with value offsets is not supported, because IRIS has no `RANGE` frames (WIN-13); `first`/`last` with `ignorenulls=True` neither (WIN-15).
 - Casting `double` and `decimal` values to string gives IRIS's text, not Spark's (CAST-12, CAST-13).
 - `union` is stricter about mixing types (UNI-03).
 - Timestamps have no time zone (TIME-01).

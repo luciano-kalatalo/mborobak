@@ -71,4 +71,12 @@ def expr_name(expr: E.Expr) -> str:
         from . import scalar
 
         return scalar.name(expr, expr_name)
+    if isinstance(expr, E.WindowExpr):
+        from . import windows
+
+        return windows.name(expr, expr_name)
+    if isinstance(expr, E.WindowFunc):
+        from . import windows
+
+        return windows.function_name(expr, expr_name)
     raise TypeError(f"no name for {type(expr).__name__}")

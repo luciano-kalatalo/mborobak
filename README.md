@@ -53,6 +53,7 @@ IRIS is fast at SQL, and many data teams think in DataFrames. Mborobak gives the
 | Expressions | arithmetic, comparisons, `&`, `\|`, `~`, `when().otherwise()`, `cast`, `isNull`, `isin`, `like`, `between`, `eqNullSafe`, sort orders with null placement |
 | Functions | null handling (`coalesce`, `nullif`, `nvl`, `nvl2`, `greatest`, `least`, `isnan`, `isnull`); strings (`upper`, `lower`, `trim`, `length`, `substring`, `concat`, `concat_ws`, `lpad`, `rpad`, `instr`, `locate`, `replace`, `initcap`, `reverse`, `repeat`); math (`round`, `bround`, `abs`, `ceil`, `floor`, `pow`, `sqrt`, `exp`, `log`, `log10`, `log2`, `log1p`, `signum`, `pmod`) |
 | Missing values | `fillna`/`na.fill`, `dropna`/`na.drop` |
+| Windows | `Window.partitionBy().orderBy().rowsBetween()/rangeBetween()`; `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first`, `last`, and aggregates `.over(window)`; filtering on window results (top-N per group); `dropDuplicates` |
 | Actions | `collect`, `show`, `count`, `take`, `first`, `head`, `toPandas` |
 | Inspection | `schema`, `columns`, `dtypes`, `printSchema`, `explain()`, `toSQL()`, per-action metrics in `session.lastExecution` |
 
@@ -197,7 +198,7 @@ They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md)
 
 Version 0.1, built for the InterSystems Open Exchange contest. It covers the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md), where the full roadmap lives (§13).
 
-- **0.2, Analytical functions:** focused on proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner and the null, string and math functions with `fillna`/`dropna` (done); date functions, window functions, `F.expr`/`selectExpr`, `dropDuplicates`; then `createDataFrame`, writing tables, `unionByName`, semi and anti joins.
+- **0.2, Analytical functions:** focused on proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner, the null, string and math functions with `fillna`/`dropna`, window functions and `dropDuplicates` (done); date functions, `F.expr`/`selectExpr`, `dropDuplicates`; then `createDataFrame`, writing tables, `unionByName`, semi and anti joins.
 - **0.3, Advanced execution:** regular expressions (IRIS SQL has none), **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
 - **1.0, Production readiness:** stable API, documented compatibility, robustness testing, observability, security, and CI on every supported Python version.
 

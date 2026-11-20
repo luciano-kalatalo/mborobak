@@ -100,12 +100,12 @@ w = Window.partitionBy("a").orderBy("b")
 w2 = w.rowsBetween(Window.unboundedPreceding, 0)
 df.withColumn("r", F.row_number().over(w))
 """))
-    assert r["Window.partitionBy"] == (PLANNED, "0.2", 1)
-    assert r["Window.orderBy"] == (PLANNED, "0.2", 1)
-    assert r["Window.rowsBetween"] == (PLANNED, "0.2", 1)
-    assert r["Window.unboundedPreceding"] == (PLANNED, "0.2", 1)
-    assert r[".over()"] == (PLANNED, "0.2", 1)
-    assert r["F.row_number"] == (PLANNED, "0.2", 1)
+    assert r["Window.partitionBy"] == (SUPPORTED, None, 1)
+    assert r["Window.orderBy"] == (SUPPORTED, None, 1)
+    assert r["Window.rowsBetween"] == (SUPPORTED, None, 1)
+    assert r["Window.unboundedPreceding"] == (SUPPORTED, None, 1)
+    assert r[".over()"] == (SUPPORTED, None, 1)
+    assert r["F.row_number"] == (SUPPORTED, None, 1)
 
 
 def test_session_reader_writer_and_platform():

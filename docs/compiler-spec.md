@@ -1,6 +1,6 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.5 · 2026-11-19
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.6 · 2026-11-20
 
 Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
@@ -95,6 +95,8 @@ All expression nodes are immutable dataclasses. Every expression knows its child
 | `CaseWhen` | `branches[(cond, value)]`, `otherwise` | `when()` without `otherwise()` means `ELSE NULL` |
 | `AggregateCall` | `function`, `args`, `distinct` | `count`, `sum`, `avg`, `min`, `max`, `countDistinct` |
 | `SortOrder` | `child`, `direction`, `nulls` | Default nulls: first for ascending, last for descending (Spark default) |
+| `WindowExpr` | `function`, `partition`, `order`, `frame` | `function.over(window)`: an `AggregateCall` or a `WindowFunc` with its window (§7.11). `frame` is `rows` or `range` with offsets, None for unbounded |
+| `WindowFunc` | `name`, `args` | `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first`, `last`; only valid inside `WindowExpr` |
 | `Func` | `name`, `args` | A scalar function (§7.10). Typing, default name and SQL come from a registry keyed by `name`. Constant arguments (a scale, a pad string) stay `Literal` arguments so the default name shows them |
 
 **Internal nodes added by required translations (§7),** never created by users: `Exact(child)` (renders `%EXACT(...)`), `TextOrder(child)` (renders `%EXACT(' ' || ...)`, §7.1), `CastGuard`, `NullOrderKey`, `DoubleSortKey`. (Draft 0.1 also had `DivisionGuard`; §7.5 explains why it was removed.)
@@ -333,6 +335,35 @@ The rules below come from the 2026-11-19 probe (§12.3). Each is checked against
 NaN and ±∞ results are parameters (§9.5). Function results are strings or numbers like any expression, so §7.1 applies to them in comparisons, keys and sorts.
 
 **`fillna` and `dropna`** compile to a `Project` and a `Filter` of ordinary expressions: `COALESCE(x, CAST(v AS type))`, or for doubles `CASE WHEN x IS NULL OR isnan(x) THEN v ELSE x END`; and conditions on `IS NOT NULL` and `NOT isnan(x)`, combined by `how` or counted against `thresh`. Columns that can't be NULL are left out (API contract §4.1).
+
+### 7.11 Window functions (release 0.2)
+
+**Where windows may appear.** In `select` and `withColumn` only. In `filter`, `orderBy`, `groupBy`, `agg` and join conditions they raise `AnalysisError` at the call, as Spark does; the user adds the column first and then filters or sorts on it. Spark's other analysis rules are checked at the call too (`src/mborobak/windows.py`): ranking functions and `lag`/`lead` need an ordered window, ranking functions take no frame but `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`, `lag`/`lead` take none, distinct aggregates can't be windowed, a frame's start can't follow its end.
+
+**Computed in a subquery.** Each `WindowExpr` of a `Project` becomes a hidden column `mborobak_wN` of the block below, which is then wrapped; the projection reads the column. Two IRIS behaviors make this necessary (probe 2026-11-20, §12.4): a window function inside a `CASE` condition gives wrong results (and a select renders boolean columns as `CASE`, §7.8), and windows run before `TOP`. So a block with `TOP` or `DISTINCT` is wrapped before the windows are added, and a filter on a window column is a plain `WHERE` on the subquery's column. Windows over a grouped block stay in it: `RANK() OVER (ORDER BY SUM("x"))` is valid next to `GROUP BY`.
+
+**`OVER` clause.**
+
+| Part | IRIS SQL | Why |
+|------|----------|-----|
+| `partitionBy` | `PARTITION BY %EXACT(g)` for strings (§7.1) | Partitions group like `GROUP BY` |
+| `orderBy` | The statement's sort terms: `%EXACT(' ' \|\| s)` for strings, the bucket key for doubles (§7.9), a `CASE` flag for non-default NULL placement (§7.4) | IRIS rejects `NULLS FIRST/LAST`; its double and string orders differ from Spark's |
+| No frame, ordered | Nothing (IRIS's default frame is Spark's RANGE … CURRENT ROW: ties share a running value) | Explicit `RANGE` frames are rejected |
+| No frame, unordered | Nothing (whole partition) | |
+| `rowsBetween(a, b)` | `ROWS BETWEEN n PRECEDING/CURRENT ROW/n FOLLOWING/UNBOUNDED …` with constants | IRIS takes no parameters in a frame |
+| `rangeBetween(unboundedPreceding, currentRow)` | Nothing (the default) | |
+| `rangeBetween(unboundedPreceding, unboundedFollowing)` | `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING` | Same rows |
+| `rangeBetween(currentRow, unboundedFollowing)` | The default frame over the reversed order (each key's direction and NULL placement flipped); `first` and `last` swap | Same rows, peers included |
+| `rangeBetween` with value offsets, or `(currentRow, currentRow)` | `UnsupportedOperationError` | No `RANGE` frames |
+| `rowsBetween` without `orderBy` (other than the whole partition) | `UnsupportedOperationError` | Rows of the frame would be arbitrary |
+
+**Functions.** `ROW_NUMBER()`, `RANK()`, `DENSE_RANK()`, `PERCENT_RANK()`, `CUME_DIST()`, `NTILE(n)` (constant) with no frame. `lag(x, n, d)` with `n > 0` is `LAG(x, n, d)`, with `n < 0` `LEAD(x, -n, d)` (IRIS fails on a negative offset), with `n = 0` the value itself; the default is cast to the column's type when it differs. `first`/`last` are `FIRST_VALUE`/`LAST_VALUE`; `ignorenulls=True` raises `NotImplementedError` (no `IGNORE NULLS`). Aggregates over a window keep their typing (§3); `min`/`max` of strings render as `SUBSTRING(MIN(%EXACT(' ' || x)) OVER (…), 2)`.
+
+**Default names** follow Spark: the function's display name (`row_number()`, `RANK()`, `lag(x, 1, NULL)`, `count(1)`), then `OVER (PARTITION BY … ORDER BY k ASC NULLS FIRST, … <frame>)`, where the frame is Spark's effective one: `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` for ranking functions (`RANGE` for `cume_dist`), `ROWS BETWEEN n FOLLOWING AND n FOLLOWING` for `lag`/`lead` (negative for `lag`), and for aggregates the given frame, or `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` when ordered, `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING` when not. Offsets are written `n FOLLOWING`, negative ones included, as Spark writes them.
+
+**`dropDuplicates(subset)`** is a `Project` with `ROW_NUMBER() OVER (PARTITION BY keys ORDER BY keys)` as a hidden column, a `Filter` on it being 1, and a `Project` back to the original columns. Without a subset it is `distinct()`. Which row of a duplicate set is kept is not defined, as in Spark.
+
+Known differences that windows inherit: `max` over a window ignores NaN (matrix FP-06), a `-1E19` partition key merges with NULL (FP-10), and summing `+∞` and `-∞` in one frame fails (FP-12).
 
 ## 8. Optional rewrites
 
@@ -576,6 +607,35 @@ Script [`probes/scalar_function_probe.py`](../probes/scalar_function_probe.py), 
 | `+∞ + −∞`, `SUM`/`AVG` over both † | Fatal error -400 `<ILLEGAL VALUE>` |
 | `%EXACT(s) > %EXACT(t)` for `'12345'`/`'5'`, `'10'`/`'9'`; `ORDER BY %EXACT(s)` † | Numeric order, numbers first |
 | `%EXACT(' ' \|\| s)` in the same comparisons, sorts, `MIN`/`MAX` † | Code-point order, as Spark |
+
+### 12.4 Probe 2026-11-20: window functions
+
+Script [`probes/window_probe.py`](../probes/window_probe.py), raw output [`probes/results-2026-11-20-windows-iris-2026.2.json`](../probes/results-2026-11-20-windows-iris-2026.2.json), IRIS 2026.2.
+
+| Check | Result |
+|-------|--------|
+| `SUM(x) OVER (PARTITION BY … ORDER BY k)` with tied `k` | Ties share the running sum: RANGE semantics, as Spark's default |
+| `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` (explicit), `RANGE BETWEEN 1 PRECEDING AND CURRENT ROW`, `RANGE … UNBOUNDED FOLLOWING` | Invalid SQL statement for all |
+| `ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING`, `… 1 FOLLOWING AND 2 FOLLOWING`, `… CURRENT ROW AND UNBOUNDED FOLLOWING` | Correct |
+| `ROWS BETWEEN ? PRECEDING …` | Invalid SQL statement |
+| `PARTITION BY g` vs `PARTITION BY %EXACT(g)` | Collation merges `'a'` and `'A'`; `%EXACT` keeps them apart |
+| Window `ORDER BY k` / `k DESC` with NULL | NULL first ascending, last descending (Spark's default) |
+| `ORDER BY k NULLS LAST` | Invalid SQL statement; a `CASE` flag works |
+| `ORDER BY d` on doubles; with the §7.9 bucket key | IRIS's order (`-1E19` with NULL, `-∞` after finite values); Spark's order with the bucket |
+| `ORDER BY %EXACT(' ' \|\| g)` | Code-point order |
+| `RANK`, `DENSE_RANK`, `PERCENT_RANK`, `CUME_DIST`, `NTILE(4)`, `NTILE(?)` | As Spark |
+| `LAG(x, 2, -1)`, `LEAD(x, 1, 0)`, `LAG(x, ?, ?)`; `LAG(x, -1)` | Correct; fatal error -400 |
+| `FIRST_VALUE`, `LAST_VALUE` with the default and `ROWS` frames | As Spark (`LAST_VALUE` over an ordered window is the current row) |
+| `FIRST_VALUE(x IGNORE NULLS)`, `… IGNORE NULLS OVER` | Invalid SQL statement |
+| `NTH_VALUE(x, 2)` | NULL for every row (not offered) |
+| `MIN(%EXACT(' ' \|\| g)) OVER ()` | `' 10'` (leading space kept: stripped with `SUBSTRING`) |
+| `COUNT(DISTINCT x) OVER ()` | Works (Spark rejects it; so does Mborobak) |
+| `RANK() OVER (ORDER BY SUM(x) DESC)` with `GROUP BY` | Correct |
+| Window in `ORDER BY`; in `WHERE` | Works; SQLCODE -367 |
+| `SELECT TOP 3 …, ROW_NUMBER() OVER (ORDER BY id DESC)` | Numbers computed before `TOP` (9, 8, 7) |
+| `CASE WHEN ROW_NUMBER() OVER (ORDER BY id) = 1 THEN …` | **Never true**: wrong result, no error |
+| `x - LAG(x) OVER (…)`, `CAST(ROW_NUMBER() OVER (…) AS DOUBLE) / 2` | Correct |
+| Result types | `ROW_NUMBER`, `RANK`, `COUNT`, `NTILE`: `BIGINT`; ratios and `AVG`: `DOUBLE` (Mborobak converts to Spark's types) |
 
 ## 13. Open questions
 

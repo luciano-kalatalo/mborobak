@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from . import expressions as E
 from . import plan as P
-from . import scalar
+from . import scalar, windows
 from .analyzer import infer
 from .errors import AnalysisError, PlanTooLargeError, UnsupportedOperationError
 from .sql.types import (
@@ -158,6 +158,8 @@ class Compiler:
                     and (e.function in ("min", "max") or e.distinct):
                 child = self.order_text(e.child) if e.function in ("min", "max") else self.exact(e.child)
                 return E.AggregateCall(e.function, child, e.distinct)
+            if isinstance(e, E.WindowExpr):  # partitions group like GROUP BY (§7.11)
+                return E.WindowExpr(e.function, tuple(self.exact(p) for p in e.partition), e.order, e.frame)
             if isinstance(e, E.Func) and scalar.spec(e.name).exact_args:
                 return E.Func(e.name, tuple(self.exact(a) for a in e.args))  # NULLIF, GREATEST compare
             return e
@@ -228,6 +230,40 @@ class Compiler:
         outer = self.wrap(b, keep_order=True)
         hidden = {attr.id for attr, _ in pre}
         outer.select = [a for a in outer.select if a.id not in hidden]
+        return outer, rewritten
+
+    def hoist_windows(self, b: Block, exprs: list[E.Expr]) -> tuple[Block, list[E.Expr]]:
+        """Compute each window expression as a hidden column of a subquery (§7.11).
+
+        IRIS evaluates a window function wrongly inside a CASE condition (probe 2026-11-20), and a select
+        renders boolean columns as CASE. As a column of the subquery, the window's result is a plain value
+        to every expression, filter and sort above it. Windows see the rows after TOP and DISTINCT, so a
+        block with either is wrapped first.
+        """
+        if b.top is not None or b.distinct:
+            b = self.wrap(b, keep_order=True)
+        pre: list[tuple[E.Attribute, E.Expr]] = []
+
+        def replace(e: E.Expr):
+            if isinstance(e, E.WindowExpr):
+                dtype, nullable = infer(e)
+                attr = E.Attribute(E.new_id(), f"mborobak_w{E.new_id()}", dtype, nullable)
+                pre.append((attr, e))
+                return E.AttrRef(attr)
+            return None
+
+        rewritten = [E.transform_down(x, replace) for x in exprs]
+        b, windows = self.hoist(b, [w for _, w in pre])  # guarded casts inside window arguments
+        visible = list(b.select)
+        for (attr, _), w in zip(pre, windows):
+            b.env[attr.id] = self.sql(w, b)
+        b.select = visible + [attr for attr, _ in pre]
+        outer = self.wrap(b, keep_order=True)
+        hidden = {attr.id for attr, _ in pre}
+        outer.select = [a for a in outer.select if a.id not in hidden]
+        note = "window functions: computed in a subquery"
+        if note not in self.translations:
+            self.translations.append(note)
         return outer, rewritten
 
     # ---------------------------------------------------------------- blocks
@@ -301,7 +337,10 @@ class Compiler:
             b = self.build(node.child)
             if b.distinct:
                 b = self.wrap(b, keep_order=True)
-            b, exprs = self.hoist(b, [expr for _, expr in node.items])
+            exprs = [expr for _, expr in node.items]
+            if any(E.contains_window(x) for x in exprs):
+                b, exprs = self.hoist_windows(b, exprs)
+            b, exprs = self.hoist(b, exprs)
             for (attr, _), expr in zip(node.items, exprs):
                 b.env[attr.id] = self.sql(expr, b)
             b.select = [a for a, _ in node.items]
@@ -564,6 +603,14 @@ def sql_type(t: DataType) -> str:
     raise UnsupportedOperationError(f"no IRIS type for {t.simpleString()}")
 
 
+def _frame_bound(value: int | None, unbounded: str) -> str:
+    if value is None:
+        return f"UNBOUNDED {unbounded}"
+    if value == 0:
+        return "CURRENT ROW"
+    return f"{abs(value)} {'PRECEDING' if value < 0 else 'FOLLOWING'}"  # constants: IRIS takes no parameters here
+
+
 _PREDICATES = (E.Comparison, E.And, E.Or, E.Not, E.IsNull, E.In, E.Like)
 
 
@@ -643,6 +690,11 @@ class Renderer:
         key_plan = order.child
         dtype, _ = infer(key_plan)
         key = self.c.substitute(self.c.order_text(self.c.translate(key_plan)), b.env)
+        name = key_plan.attr.name if isinstance(key_plan, E.AttrRef) else "an expression"
+        return self.sort_terms(key, dtype, order, name)
+
+    def sort_terms(self, key: E.Expr, dtype: DataType, order: E.SortOrder, name: str) -> str:
+        """ORDER BY terms of one SQL-level key, in a statement or a window (§7.4, §7.9)."""
         direction = "" if order.ascending else " DESC"
         default_nulls = order.nulls_first is None or order.nulls_first == order.ascending
 
@@ -652,7 +704,6 @@ class Renderer:
         if isinstance(dtype, DoubleType):
             # §7.9: bucket key restores Spark's order around IRIS's -1E19 NULL marker.
             null_bucket = 0 if default_nulls else 5
-            name = key_plan.attr.name if isinstance(key_plan, E.AttrRef) else "an expression"
             note = f"double sort: bucket key on {name}"
             if note not in self.c.translations:
                 self.c.translations.append(note)
@@ -701,6 +752,8 @@ class Renderer:
             parts = " ".join(f"WHEN {self.pred(c)} THEN {self.value(v)}" for c, v in e.branches)
             tail = f" ELSE {self.value(e.otherwise)}" if e.otherwise is not None else ""
             return f"CASE {parts}{tail} END"
+        if isinstance(e, E.WindowExpr):
+            return self.window(e)
         if isinstance(e, E.Func):
             s = scalar.spec(e.name)
             if s.predicate:
@@ -721,6 +774,70 @@ class Renderer:
             n = self.pred(E.Not(e))
             return f"CASE WHEN {p} THEN 1 WHEN {n} THEN 0 END"
         raise UnsupportedOperationError(f"cannot render {type(e).__name__}")
+
+    def window(self, w: E.WindowExpr) -> str:
+        """``FUNCTION(…) OVER (PARTITION BY … ORDER BY … frame)`` (§7.11)."""
+        f, order, frame = w.function, list(w.order), w.frame
+        swap = False
+        if frame is not None and frame.kind == "range" and frame.start == 0 and frame.end is None:
+            # RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING is IRIS's default frame over the reversed
+            # order: IRIS has no explicit RANGE frames.
+            order = [E.SortOrder(o.child, not o.ascending, not o.effective_nulls_first) for o in order]
+            frame, swap = None, True
+        if isinstance(f, E.WindowFunc) and f.name in windows.OFFSET:
+            n = windows.offset_of(f)
+            if n == 0:
+                return self.value(f.args[0])
+            t, _ = infer(f.args[0])
+            default = f.args[2]
+            dt, _ = infer(default)
+            if dt != t and not isinstance(dt, NullType):
+                default = E.Cast(default, t)
+            fn = "LAG" if n < 0 else "LEAD"
+            tail = "" if isinstance(f.args[2], E.Literal) and f.args[2].value is None else f", {self.value(default)}"
+            call = f"{fn}({self.value(f.args[0])}, {abs(n)}{tail})"
+            return f"{call} OVER ({self.window_spec(w, order, None)})"
+        strip = False
+        if isinstance(f, E.WindowFunc):
+            name = f.name
+            if swap and name in windows.VALUE:
+                name = "last" if name == "first" else "first"
+            sql = {"row_number": "ROW_NUMBER", "rank": "RANK", "dense_rank": "DENSE_RANK",
+                   "percent_rank": "PERCENT_RANK", "cume_dist": "CUME_DIST", "ntile": "NTILE",
+                   "first": "FIRST_VALUE", "last": "LAST_VALUE"}[name]
+            if name == "ntile":
+                call = f"NTILE({int(f.args[0].value)})"
+            elif name in windows.VALUE:
+                call = f"{sql}({self.value(f.args[0])})"
+            else:
+                call = f"{sql}()"
+            if name in windows.RANKING:
+                frame = None  # their frame is fixed; IRIS takes none
+        else:
+            strip = isinstance(f.child, E.TextOrder)
+            fn = f.function.upper()
+            call = f"{fn}(*)" if isinstance(f.child, E.Star) else f"{fn}({self.value(f.child)})"
+        text = f"{call} OVER ({self.window_spec(w, order, frame)})"
+        return f"SUBSTRING({text}, 2)" if strip else text
+
+    def window_spec(self, w: E.WindowExpr, order: list[E.SortOrder], frame: E.Frame | None) -> str:
+        parts = []
+        if w.partition:
+            parts.append("PARTITION BY " + ", ".join(self.value(p) for p in w.partition))
+        if order:
+            terms = []
+            for o in order:
+                dtype, _ = infer(o.child)
+                key = self.c.order_text(o.child)
+                name = o.child.name if isinstance(o.child, E.SqlCol) else "an expression"
+                terms.append(self.sort_terms(key, dtype, o, name))
+            parts.append("ORDER BY " + ", ".join(terms))
+        if frame is not None and frame.kind == "rows" and frame != windows.RANGE_TO_CURRENT:
+            parts.append(f"ROWS BETWEEN {_frame_bound(frame.start, 'PRECEDING')} AND "
+                         f"{_frame_bound(frame.end, 'FOLLOWING')}")
+        elif frame is not None and frame.start is None and frame.end is None and order:
+            parts.append("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING")  # whole partition
+        return " ".join(parts)
 
     def pred(self, e: E.Expr) -> str:
         if isinstance(e, E.Comparison):

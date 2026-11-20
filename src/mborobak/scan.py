@@ -145,6 +145,7 @@ def _supported() -> dict[str, set[str]]:
     from . import Column, DataFrame, GroupedData, MborobakSession
     from .session import _CatalogAPI
     from .sql import functions as F
+    from .sql.window import Window, WindowSpec
 
     def public(cls) -> set[str]:
         return {n for n in dir(cls) if not n.startswith("_")}
@@ -155,6 +156,7 @@ def _supported() -> dict[str, set[str]]:
         FUNCTION: functions,
         METHOD: public(DataFrame) | public(Column) | public(GroupedData),
         SESSION: public(MborobakSession) | {"catalog." + n for n in public(_CatalogAPI)},
+        WINDOW: public(Window) | public(WindowSpec),
     }
 
 
@@ -296,6 +298,8 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
             return OUT_OF_SCOPE, None, _OUT_OF_SCOPE_SESSION[name]
         return NOT_SCHEDULED, None, None
     if kind == WINDOW:
+        if name in supported.get(WINDOW, set()):
+            return SUPPORTED, None, None
         return PLANNED, _WINDOW_PLANNED, "window functions"
     if kind == READER:
         if name == "read.table":

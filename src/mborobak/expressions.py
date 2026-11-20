@@ -9,6 +9,7 @@ the compiler.
 from __future__ import annotations
 
 import itertools
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -209,6 +210,47 @@ class AggregateCall(Expr):
 
 
 @dataclass(frozen=True)
+class WindowFunc(Expr):
+    """A function that only exists over a window: ``row_number``, ``rank``, ``lag``, ``first`` …
+    (compiler spec §7.11). Constant arguments (an offset, a bucket count) are ``Literal`` arguments."""
+
+    name: str
+    args: tuple[Expr, ...] = ()
+
+    def children(self):
+        return self.args
+
+
+UNBOUNDED_PRECEDING = -(1 << 63)  # PySpark's Window.unboundedPreceding
+UNBOUNDED_FOLLOWING = (1 << 63) - 1
+PRECEDING_LIMIT = max(-sys.maxsize, UNBOUNDED_PRECEDING)  # PySpark treats anything beyond as unbounded
+FOLLOWING_LIMIT = min(sys.maxsize, UNBOUNDED_FOLLOWING)
+
+
+@dataclass(frozen=True)
+class Frame:
+    """``rowsBetween``/``rangeBetween``: ``kind`` is "rows" or "range"; ``start``/``end`` are offsets
+    from the current row, None for unbounded."""
+
+    kind: str
+    start: int | None
+    end: int | None
+
+
+@dataclass(frozen=True)
+class WindowExpr(Expr):
+    """``function.over(window)``: an ``AggregateCall`` or a ``WindowFunc`` with its window."""
+
+    function: Expr
+    partition: tuple[Expr, ...] = ()
+    order: tuple["SortOrder", ...] = ()
+    frame: Frame | None = None
+
+    def children(self):
+        return (self.function, *self.partition, *self.order)
+
+
+@dataclass(frozen=True)
 class SortOrder(Expr):
     child: Expr
     ascending: bool = True
@@ -302,4 +344,13 @@ def walk(expr: Expr):
 
 
 def contains_aggregate(expr: Expr) -> bool:
-    return any(isinstance(e, AggregateCall) for e in walk(expr))
+    """An aggregate that groups rows; ``sum(x).over(w)`` is a window function, not one."""
+    if isinstance(expr, WindowExpr):
+        return any(contains_aggregate(c) for c in (*expr.function.children(), *expr.partition, *expr.order))
+    if isinstance(expr, AggregateCall):
+        return True
+    return any(contains_aggregate(c) for c in expr.children())
+
+
+def contains_window(expr: Expr) -> bool:
+    return any(isinstance(e, (WindowExpr, WindowFunc)) for e in walk(expr))

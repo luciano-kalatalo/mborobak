@@ -146,6 +146,18 @@ class Column:
     def between(self, lowerBound: Any, upperBound: Any) -> "Column":  # noqa: N803
         return (self >= lowerBound) & (self <= upperBound)
 
+    def over(self, window: Any) -> "Column":
+        """This aggregate or window function, computed over ``window`` (a ``WindowSpec``)."""
+        from .sql.window import WindowSpec
+
+        if not isinstance(window, WindowSpec):
+            raise TypeError("over() takes a WindowSpec, e.g. Window.partitionBy('g').orderBy('t')")
+        expr = self._expr.child if isinstance(self._expr, E.Alias) else self._expr
+        if not isinstance(expr, (E.AggregateCall, E.WindowFunc)):
+            raise TypeError("over() applies to an aggregate (sum, count, …) or a window function (row_number, "
+                            "rank, lag, …)")
+        return Column(E.WindowExpr(expr, window._partition, window._order, window._frame))
+
     def substr(self, startPos: Any, length: Any) -> "Column":  # noqa: N803
         from .sql.functions import substr
 

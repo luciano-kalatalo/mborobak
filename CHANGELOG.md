@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Window functions: `Window`/`WindowSpec` with `partitionBy`, `orderBy`, `rowsBetween`, `rangeBetween` (unbounded and current-row bounds); `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first`, `last` and aggregates with `.over()`. Spark's names, types, sort order and analysis errors; filtering on window results works (compiler spec §7.11, compatibility matrix §2.13). `rangeBetween` with value offsets raises `UnsupportedOperationError`: IRIS has no `RANGE` frames.
+- `dropDuplicates(subset)` and `drop_duplicates`.
 - Null, string and math functions: `coalesce`, `ifnull`, `nvl`, `nvl2`, `nullif`, `isnan`, `isnull`, `isnotnull`, `greatest`, `least`; `upper`, `lower`, `trim`, `ltrim`, `rtrim`, `initcap`, `reverse`, `repeat`, `length`, `char_length`, `substring`, `substr` (also `Column.substr`), `concat`, `concat_ws`, `lpad`, `rpad`, `instr`, `locate`, `replace`; `abs`, `round`, `bround`, `ceil`, `ceiling`, `floor`, `pow`, `power`, `sqrt`, `exp`, `ln`, `log`, `log10`, `log2`, `log1p`, `signum`, `sign`, `pmod`. Each has PySpark's result type and default name, and Spark's results where IRIS's functions differ or fail (compiler spec §7.10, compatibility matrix §2.12).
 - `fillna`/`na.fill` and `dropna`/`na.drop`, including NaN in double columns.
 - **Fix:** strings that look like numbers (`'10'`, `'9'`) now compare, sort and aggregate (`min`, `max`) as text, as in Spark. With `%EXACT`, IRIS ordered them as numbers (matrix STR-16).

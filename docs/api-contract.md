@@ -1,6 +1,6 @@
 # API Contract
 
-Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.2 · 2026-11-19
+Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.3 · 2026-11-20
 
 Defines the public Python API of the P0 release: names, signatures, accepted arguments, return values, errors, and the number of queries each call may run. Implements [mborobak-scope.md](mborobak-scope.md) §5 and §7. How a plan becomes SQL is in the [compiler specification](compiler-spec.md) (control document 1); how results compare to PySpark is in the [compatibility matrix](compatibility-matrix.md) (control document 3).
 
@@ -141,6 +141,7 @@ All return a new `DataFrame`. Column arguments accept a column name (`str`) or a
 | `groupBy(*cols)`, `groupby(...)` | columns | Returns `GroupedData` (§4.3) |
 | `agg(*exprs)` | aggregate `Column`s or a `dict` | Same as `groupBy().agg(...)` |
 | `fillna(value, subset=None)`, `na.fill(...)` | `value`: `int`, `float`, `str`, `bool`, or a `dict` of column name to value; `subset`: a name or a list | Replaces NULL, and NaN in double columns. Without a dict, a number fills numeric columns, a string string columns, a bool boolean columns; other columns are left as they are. The value is cast to each column's type, as in Spark (`1.7` fills an `int` column with 1). A dict value of the wrong kind raises `AnalysisError`. (0.2) |
+| `dropDuplicates(subset=None)`, `drop_duplicates(...)` | `subset`: a name or a list | One row per distinct `subset` value; which row is kept is not defined, as in Spark. Without `subset`, `distinct()` (0.2) |
 | `dropna(how="any", thresh=None, subset=None)`, `na.drop(...)` | `how`: `"any"` or `"all"`; `thresh`: `int` | Drops rows with NULL, or NaN in double columns, in the `subset` columns. `thresh` keeps rows with at least that many valid values and overrides `how`. (0.2) |
 
 ### 4.2 Join types
@@ -198,7 +199,7 @@ These may run a schema lookup but never a data query.
 
 Calling these raises `UnsupportedOperationError`, which names the release that adds them, instead of `AttributeError`:
 
-- P1: `unionByName`, `dropDuplicates`, `toLocalIterator`, `selectExpr`, `filter`/`where` with a string, semi and anti joins, `createDataFrame`, window functions, date functions, `write`. (Null, string and math functions, `fillna` and `dropna` arrived in 0.2, §6.4.)
+- P1: `unionByName`, `toLocalIterator`, `selectExpr`, `filter`/`where` with a string, semi and anti joins, `createDataFrame`, date functions, `write`. (Null, string and math functions, `fillna`, `dropna`, window functions and `dropDuplicates` arrived in 0.2, §6.4, §6.6.)
 - Not planned: `cache`, `persist`, `unpersist`, `checkpoint`, `repartition`, `coalesce`, `rdd`, `foreach`, `mapInPandas`, `toArrow`, streaming, UDFs (P2).
 
 `cache()` and `persist()` raise rather than doing nothing, because a silent no-op would hide the fact that every action re-runs the query.
@@ -283,6 +284,7 @@ Python operator precedence applies: `F.col("a") > 1 & F.col("b") < 2` is a mista
 | `between(lower, upper)` | Inclusive |
 | `asc()`, `desc()`, `asc_nulls_first()`, `asc_nulls_last()`, `desc_nulls_first()`, `desc_nulls_last()` | Sort orders |
 | `when(cond, value)`, `otherwise(value)` | On a `when()` result only |
+| `over(window)` | On an aggregate or a window function (§6.6). A window function in `filter`, `orderBy`, `groupBy`, `agg` or a join raises `AnalysisError`: add it with `withColumn` first (0.2) |
 | `substr(startPos, length)` | Integers (or `F.lit` integers); same as `F.substr` (0.2) |
 
 ### 6.4 Functions
@@ -318,7 +320,30 @@ Release 0.2 adds null, string and math functions. Their IRIS SQL is in compiler 
 | `pow(a, b)`, `power(a, b)`, `sqrt`, `exp`, `ln`, `log(x)`, `log(base, x)`, `log10`, `log2`, `log1p`, `signum`, `sign` | `double`. Out-of-domain inputs give NaN, NULL or infinity as in Spark |
 | `pmod(dividend, divisor)` | Non-negative remainder; a zero divisor raises `MborobakArithmeticError` |
 
+Window functions, each used with `.over(window)` (§6.6):
+
+| Function | Notes |
+|----------|-------|
+| `row_number()`, `rank()`, `dense_rank()`, `ntile(n)` | `int`; need an ordered window |
+| `percent_rank()`, `cume_dist()` | `double`; need an ordered window |
+| `lag(col, offset=1, default=None)`, `lead(...)` | The column's type; need an ordered window and no frame. `default` is a constant |
+| `first(col)`, `last(col)` | Over the window's frame. `ignorenulls=True` raises `NotImplementedError` |
+| `count`, `sum`, `avg`, `min`, `max` | Over the window's frame, with their usual types |
+
 Accepting a column name where PySpark does (`F.sum("amount")`) works the same way. Where PySpark takes a constant (`substring`'s position, `lpad`'s pad, `concat_ws`'s separator), a column there raises `TypeError`.
+
+### 6.6 Windows
+
+`from mborobak.sql import Window` (also `mborobak.sql.window`). `Window.partitionBy(*cols)`, `Window.orderBy(*cols)`, `Window.rowsBetween(start, end)`, `Window.rangeBetween(start, end)` return a `WindowSpec`, which has the same four methods and is immutable. `Window.unboundedPreceding`, `Window.unboundedFollowing` and `Window.currentRow` have PySpark's values.
+
+| Frame | Supported |
+|-------|-----------|
+| None | Yes: Spark's default (running values with ties shared when ordered, the whole partition when not) |
+| `rowsBetween(a, b)` | Yes, with an ordered window (or the whole partition without one) |
+| `rangeBetween(unboundedPreceding, currentRow)`, `(unboundedPreceding, unboundedFollowing)`, `(currentRow, unboundedFollowing)` | Yes |
+| `rangeBetween` with value offsets, or `(currentRow, currentRow)` | No: `UnsupportedOperationError` (IRIS has no `RANGE` frames, compatibility matrix WIN-13) |
+
+Output names are Spark's, for example `RANK() OVER (PARTITION BY g ORDER BY k ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)`; give windowed columns an alias. The compiled SQL is in compiler spec §7.11.
 
 ### 6.5 Output names
 

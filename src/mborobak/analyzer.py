@@ -152,6 +152,11 @@ def resolve(expr: E.Expr, plan: Plan, operation: str | None, allow_star: bool = 
             return E.SortOrder(go(e.child), e.ascending, e.nulls_first)
         if isinstance(e, E.Func):
             return E.Func(e.name, tuple(go(a) for a in e.args))
+        if isinstance(e, E.WindowFunc):
+            return E.WindowFunc(e.name, tuple(go(a) for a in e.args))
+        if isinstance(e, E.WindowExpr):
+            return E.WindowExpr(go(e.function), tuple(go(p) for p in e.partition), tuple(go(o) for o in e.order),
+                                e.frame)
         raise UnsupportedOperationError(f"unsupported expression {type(e).__name__}", operation=operation)
 
     resolved = go(expr)
@@ -380,9 +385,44 @@ def infer(expr: E.Expr, operation: str | None = None) -> tuple[DataType, bool]:
         from . import scalar
 
         return scalar.infer(expr, operation)
+    if isinstance(expr, E.WindowExpr):
+        return _infer_window(expr, operation)
+    if isinstance(expr, E.WindowFunc):
+        raise AnalysisError(f"window function {expr.name}() requires an OVER clause: add .over(window)",
+                            operation=operation)
     if isinstance(expr, E.Star):
         raise AnalysisError("'*' is not an expression here", operation=operation)
     raise UnsupportedOperationError(f"cannot type {type(expr).__name__}", operation=operation)
+
+
+def _infer_window(w: E.WindowExpr, operation: str | None) -> tuple[DataType, bool]:
+    from . import windows
+
+    windows.check(w, operation)
+    for p in w.partition:
+        infer(p, operation)
+    for o in w.order:
+        infer(o, operation)
+    f = w.function
+    if isinstance(f, E.AggregateCall):
+        return infer(f, operation)
+    if f.name in ("row_number", "rank", "dense_rank", "ntile"):
+        return IntegerType(), False
+    if f.name in ("percent_rank", "cume_dist"):
+        return DoubleType(), False
+    t, _ = infer(f.args[0], operation)
+    if f.name in windows.OFFSET:
+        dt, _ = infer(f.args[2], operation)
+        if wider(t, dt) is None:
+            raise AnalysisError(f"{f.name}() default {dt.simpleString()} doesn't match the column's type "
+                                f"{t.simpleString()}", operation=operation)
+    return (StringType() if isinstance(t, NullType) else t), True
+
+
+def check_no_window(expr: E.Expr, operation: str | None, where: str) -> None:
+    if E.contains_window(expr):
+        raise AnalysisError(f"window functions are not allowed in {where}; add the column with withColumn() "
+                            "first, then use it", operation=operation)
 
 
 # --------------------------------------------------------------------------- output attributes
