@@ -1,4 +1,4 @@
-SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.11 · 2026-11-19
+SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.12 · 2026-11-20
 
 # Mborobak
 
@@ -22,6 +22,7 @@ Scope document covering functionality, architecture, implementation and validati
 | 1.9     | 2026-11-19 | D1 changed back: IRIS 2026.2 (build 221U) for development, testing and submission; build 154 will not be used. §1.1 item 6 marked as a known deviation from the contest rules. |
 | 1.10    | 2026-11-19 | Release 0.3 gains a concrete item: columnar (Arrow-style) result transfer, after the benchmark showed per-row conversion dominates large results (§13). |
 | 1.11    | 2026-11-19 | Release 0.2 reordered for proofs of concept with Databricks users, following the [POC readiness plan](poc-readiness-plan.md): notebook scanner, column functions, window functions, SQL-string expressions first (§13). |
+| 1.12    | 2026-11-20 | Release 0.2.0 shipped with items 1 and 2 of §13 (tier 1 of the POC readiness plan); item 3 becomes the 0.2.x releases. Exit criterion met: 91% of in-scope calls on public Databricks notebooks. |
 
 ---
 
@@ -332,13 +333,13 @@ There is also no generic multi-database layer in the MVP. The architecture must 
 
 **Release 0.1: DataFrame Core.** Declarative API, lazy evaluation, analyzer, SQL compiler, IRIS execution, diagnostics and P0 benchmark.
 
-**Release 0.2: Analytical Functions (POC readiness).** Ordered by what PySpark users on Databricks reach for first ([POC readiness plan](poc-readiness-plan.md)):
+**Release 0.2: Analytical Functions (POC readiness).** Ordered by what PySpark users on Databricks reach for first ([POC readiness plan](poc-readiness-plan.md)). Release 0.2.0 (2026-11-20) delivers items 1 and 2; item 3 follows in 0.2.x releases:
 
 1. A notebook compatibility scanner, to measure a client's code against what Mborobak supports.
 2. Null, string and math functions; window functions; date and time functions; SQL-string expressions (`F.expr`, `selectExpr`, `filter("…")`); `dropDuplicates`.
 3. Then `createDataFrame`, table writes, `unionByName`, semi/anti joins, named `sql()` parameters and planner improvements.
 
-Exit criterion: at least 80% of the calls in representative Databricks notebooks supported, each new function with a PySpark comparison row.
+Exit criterion: at least 80% of the calls in representative Databricks notebooks supported, each new function with a PySpark comparison row. Met by 0.2.0: 91% of in-scope calls on the public notebook set, 93% on the sample notebook.
 
 **Release 0.3: Advanced Execution.** Research and prototypes for UDF/UDAF, vectorized execution, external storage and parallelism, and:
 

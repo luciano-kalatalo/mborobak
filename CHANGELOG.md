@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-11-20)
+
+Analytical functions, for proofs of concept with Databricks users (tier 1 of the [POC readiness plan](docs/poc-readiness-plan.md)). On a set of public Databricks notebooks, 91% of the PySpark calls that matter in a POC are now supported. The rest are platform calls such as `display()` and file reads.
 
 - Spark SQL expression strings: `F.expr`, `selectExpr`, `filter("…")`/`where("…")`, with Spark SQL's literal types, operators, `CASE`, `CAST`, functions, aggregates and windows, and Spark's default column names (compiler spec §7.13, compatibility matrix §2.15).
 - **Fix:** a fractional constant beside an integer column (`F.col("i") + 1.5`, `coalesce(i, 1.5)`) is computed exactly; IRIS turned the parameter into an integer (`7 + 1.5` gave 9). Decimal and double constants are now sent as typed parameters (matrix NUM-14).
@@ -12,7 +14,7 @@
 - Null, string and math functions: `coalesce`, `ifnull`, `nvl`, `nvl2`, `nullif`, `isnan`, `isnull`, `isnotnull`, `greatest`, `least`; `upper`, `lower`, `trim`, `ltrim`, `rtrim`, `initcap`, `reverse`, `repeat`, `length`, `char_length`, `substring`, `substr` (also `Column.substr`), `concat`, `concat_ws`, `lpad`, `rpad`, `instr`, `locate`, `replace`; `abs`, `round`, `bround`, `ceil`, `ceiling`, `floor`, `pow`, `power`, `sqrt`, `exp`, `ln`, `log`, `log10`, `log2`, `log1p`, `signum`, `sign`, `pmod`. Each has PySpark's result type and default name, and Spark's results where IRIS's functions differ or fail (compiler spec §7.10, compatibility matrix §2.12).
 - `fillna`/`na.fill` and `dropna`/`na.drop`, including NaN in double columns.
 - **Fix:** strings that look like numbers (`'10'`, `'9'`) now compare, sort and aggregate (`min`, `max`) as text, as in Spark. With `%EXACT`, IRIS ordered them as numbers (matrix STR-16).
-- New known differences, each with a strict test: adding `+∞` and `-∞` raises an error (FP-12), `pow` overflow raises an error (FUN-24), integer overflow in `abs`/`round` is not detected (FUN-25), `initcap` starts words after tabs (FUN-22).
+- New known differences, each with a strict test: adding `+∞` and `-∞` raises an error (FP-12), `pow` overflow raises an error (FUN-24), integer overflow in `abs`/`round` is not detected (FUN-25), `initcap` starts words after tabs (FUN-22), `to_timestamp`/`date_trunc`/`current_timestamp` return `timestamp_ntz` where Spark returns `timestamp` (TIME-05).
 - `mborobak-scan`: a notebook compatibility scanner. It lists the PySpark calls in `.ipynb` notebooks, Databricks `.py` exports and scripts, and marks each as supported, planned (with release), not scheduled, or out of scope. Output is text, Markdown or JSON.
 
 ## 0.1.0 (2026-11-18)
