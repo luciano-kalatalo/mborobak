@@ -403,6 +403,28 @@ Where Spark names a SQL expression differently from its Column-API twin, the par
 
 Not supported, each with `UnsupportedOperationError`: `RLIKE`/`REGEXP` and the `regexp_*` functions (IRIS SQL has no regular expressions), `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, `sum(DISTINCT …)`, smallint/tinyint/float. Malformed text raises `ParseError`, an `AnalysisError`, at the call, with the position.
 
+### 7.14 Comparisons with NaN
+
+Spark orders NaN above every double, `+∞` included, and NaN equals NaN: `NaN > 0`, `NaN >= NaN` and `NaN = NaN` are true, `NaN < x` is false for every `x`. IRIS's answer depends on the plan (probe 2026-11-20, §12.7):
+
+- between two columns of a row, NaN sorts **below** every value (`NaN > 0` false, `NaN <= 0` true) and `NaN = NaN` is false;
+- across a join, `NaN = NaN` is true;
+- against a NaN parameter, `a <> ?` and `a >= ?` are true for a NaN `a`, `a = ?` false;
+- `a IN (?nan, …)` matches a NaN `a` in `WHERE`, not in `CASE`.
+
+Only `x <> x` inside `CASE` finds NaN reliably (it is never true in a bare `WHERE`, matrix FUN-04). So `Renderer.pred` decides every case where a side may be NaN with that test, and lets IRIS compare only numbers. A side **may be NaN** when its type is `double` and it is not a literal; a NaN literal **is** NaN; integers, decimals and finite literals never are; a NULL literal leaves the comparison as it was (the result is NULL).
+
+| Sides | Rendering of `a op b` |
+|-------|----------------------|
+| Neither may be NaN | `a op b`, unchanged |
+| `a` may be NaN, `b` a number literal (the common filter `d > 0`) | Where Spark's result for NaN is true (`>`, `>=`, `<>`): `(a op b OR CASE WHEN a <> a THEN 1 ELSE 0 END = 1)`; where it is false (`<`, `<=`, `=`): `(a op b AND CASE WHEN a <> a THEN 0 ELSE 1 END = 1)`. The plain comparison stays a conjunct, so an index can still serve `<`, `<=` and `=`. Mirrored when the literal is on the left |
+| `a = b`, `a <> b`, both may be NaN (join keys) | `(a = b OR CASE WHEN a <> a AND b <> b THEN 1 ELSE 0 END = 1)`, negated for `<>`; the `=` stays usable as a join condition |
+| Otherwise (`<` … `>=` between two doubles; a NaN literal) | `(CASE WHEN a IS NULL OR b IS NULL THEN NULL WHEN a <> a THEN <both NaN / a NaN> WHEN b <> b THEN <b NaN> WHEN a op b THEN 1 ELSE 0 END = 1)`, with Spark's constant result in each NaN branch |
+| `a <=> b` with a side that may be NaN | The same `CASE`, with the NULL branches of null-safe equality |
+| `x IN (…)`, `x` may be NaN, all values literals | `(CASE WHEN x IS NULL THEN NULL WHEN x <> x THEN <1 if a value is NaN> WHEN x IN (numbers) THEN 1 ELSE 0 END = 1)` (NULL instead of 0 when the list holds NULL, as Spark's three-valued `IN`); with non-literal values, an `OR` of equalities. NaN values are dropped from a list whose `x` can't be NaN |
+
+Every form is a predicate with NULL where Spark's result is NULL, so `NOT`, `CASE WHEN p THEN 1 WHEN NOT p THEN 0 END` (§7.8) and `between` (two comparisons) work unchanged. The operands are rendered once per use, so their parameters repeat in order. `explain()` lists the translation once. Release 0.2.0 and earlier passed comparisons through: `filter(d > 0)` dropped NaN rows, and `d < e` was wrong whenever one side was NaN (matrix FP-13).
+
 ## 8. Optional rewrites
 
 Each rewrite has a name, a precondition and a session switch (`optimizer.<name>`, default on). The test suite runs every test with all rewrites on and with all off and compares results (scope §6.10).
@@ -753,6 +775,19 @@ Script [`probes/write_probe.py`](../probes/write_probe.py), raw output [`probes/
 | `DELETE FROM t`, failing `INSERT`, `ROLLBACK` | Rows back |
 | `ALTER TABLE s RENAME t` onto an existing `t`; to another schema | -201; -1 |
 | `CREATE TABLE` of an existing name in other case; in a new schema; unqualified | -201; creates the schema; `SQLUser` |
+
+### 12.7 Probe 2026-11-20: comparisons with NaN
+
+Script [`probes/nan_comparison_probe.py`](../probes/nan_comparison_probe.py), raw output [`probes/results-2026-11-20-nan-iris-2026.2.json`](../probes/results-2026-11-20-nan-iris-2026.2.json), IRIS 2026.2. Pairs of NaN, ±∞, 1, 0, `-1E19` and `1E300` in two `DOUBLE` columns of one row:
+
+| Check | Result |
+|-------|--------|
+| `a op b` in `WHERE` and in `CASE`, against Spark | Same answer in both places. Differs from Spark only where a side is NaN: `=` and `<>` for NaN, NaN (false, true); `<`, `<=`, `>`, `>=` for NaN against any number, NaN sorting below everything (6 pairs each). ±∞ and `-1E19` compare correctly |
+| `CASE WHEN a <> a THEN 1 ELSE 0 END`; the same `= 1` in `WHERE`; bare `WHERE a <> a` | 1 for NaN only; finds the NaN rows; finds none |
+| `x.a = y.b` as a join condition and as a cross-join `WHERE` | NaN matches NaN |
+| `a op ?` with a NaN parameter, for `=`, `<>`, `<`, `<=`, `>`, `>=` | NaN `a`: false, true, false, true, false, true; `1.0`: false, true, false, true, false, true |
+| `a IN (?nan, ?1.0)` in `WHERE`; `CASE WHEN a IN (?nan)` | Matches NaN and 1.0; 0 for NaN |
+| The fixes: `(x.a = y.b OR CASE WHEN x.a <> x.a AND y.b <> y.b …)` as a join condition; `(a > ? OR CASE WHEN a <> a …)` | NaN matches NaN only; NaN and 1.0 for `> 0` |
 
 ## 13. Open questions
 

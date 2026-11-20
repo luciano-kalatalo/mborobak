@@ -107,13 +107,13 @@ def statements(conn) -> list[str]:
 
 
 def test_create_runs_in_one_transaction(conn, session, src):
-    src.select("id", "s", (F.col("d") > 1).alias("big"), F.col("n") * 2).write.saveAsTable("App.New")
+    src.select("id", "s", (F.col("id") > 1).alias("big"), F.col("n") * 2).write.saveAsTable("App.New")
     assert statements(conn) == [
         "START TRANSACTION",
         'CREATE TABLE "App"."New" ("id" INTEGER, "s" VARCHAR(3641144) COLLATE EXACT, "big" BIT, '
         '"(n * 2)" NUMERIC(12,2))',
-        'INSERT INTO "App"."New" ("id", "s", "big", "(n * 2)") SELECT "id", "s", CASE WHEN "d" > ? THEN 1 '
-        'WHEN NOT ("d" > ?) THEN 0 END AS "big", ("n" * ?) AS "(n * 2)" FROM "App"."Src"',
+        'INSERT INTO "App"."New" ("id", "s", "big", "(n * 2)") SELECT "id", "s", CASE WHEN "id" > ? THEN 1 '
+        'WHEN NOT ("id" > ?) THEN 0 END AS "big", ("n" * ?) AS "(n * 2)" FROM "App"."Src"',
         "COMMIT",
     ]
     m = session.lastExecution

@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-i` | NaN comparison probe 2026-11-20 ([`probes/nan_comparison_probe.py`](../probes/nan_comparison_probe.py)), [compiler spec](compiler-spec.md) §12.7 |
 | `P-h` | Write probe 2026-11-20 ([`probes/write_probe.py`](../probes/write_probe.py)), [compiler spec](compiler-spec.md) §12.6 |
 | `P-g` | Date and time probe 2026-11-20 ([`probes/date_probe.py`](../probes/date_probe.py)), [compiler spec](compiler-spec.md) §12.5 |
 | `P-f` | Window-function probe 2026-11-20 ([`probes/window_probe.py`](../probes/window_probe.py)), [compiler spec](compiler-spec.md) §12.4 |
@@ -126,7 +127,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 |----|----------|---------|------|----------|--------|----------|
 | FP-01 | `-0.0` vs `0.0` in `=`, grouping, `distinct` | Equal; normalized | Equal; one group | Passed through | Same | S§2.7, P-c / diff |
 | FP-02 | `-0.0` returned as a value | `-0.0` from storage; `0.0` after grouping | `-0.0` from storage; `0.0` after grouping | Passed through | Same | P-c / diff |
-| FP-03 | NaN = NaN, NaN in grouping and joins | True; one group; joins match | Same | Passed through | Same | P-c / diff |
+| FP-03 | NaN = NaN, NaN in grouping and joins | True; one group; joins match | One group; joins match; `=` between two columns of a row is false (FP-13) | Grouping passed through; `=` tests NaN first (spec §7.14) | Same | P-c, P-i / diff |
 | FP-04 | NaN in sort order; `-0.0` and `0.0` tie | Largest value (after +∞); ±0 compare equal | After +∞ | Bucket sort key | Emulated (spec §7.9) | P-c / diff |
 | FP-05 | `-Infinity` in sort order | Smallest value | Sorted after all finite values | Bucket sort key | Emulated (spec §7.9) | P-c / diff |
 | FP-06 | `max` with NaN present | NaN | Ignores NaN | Passed through | Known difference, in windows too (`max(d).over(w)`): a NaN-aware `max` needs an extra aggregate per column; candidate for P1 | P-c / diff |
@@ -135,6 +136,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | FP-09 | `DOUBLE` value `-1E19` in `orderBy` | Normal value | Returned as NULL; NULLs misplaced | Bucket key plus `d + 0` | Emulated (spec §7.9) | P-c / diff |
 | FP-10 | `DOUBLE` value `-1E19` in `groupBy`, `distinct`, `countDistinct`, window partitions and `dropDuplicates` | Normal value | Merged with NULL | Passed through | Known difference (spec O7) | P-c / diff |
 | FP-11 | Functions returning NaN, NULL or ∞ in Spark (`sqrt(-1)`, `log(0)`, `pow(0, -1)`, `exp(1000)`) | NaN, NULL, ∞ | Fatal error -400 | Out-of-domain inputs routed before the IRIS function (spec §7.10) | Emulated (spec §7.10) | S§2.7, P-e / diff |
+| FP-13 | Comparisons with NaN: `=`, `!=`, `<`, `<=`, `>`, `>=`, `<=>`, `isin`, `between`, in filters and as values | NaN above every value, `+∞` included; NaN = NaN | Varies by plan: NaN below every value between columns of a row, `NaN = NaN` false there and true across a join, NaN parameters unequal to NaN | NaN decided by `x <> x` in `CASE` before IRIS compares (spec §7.14). Fixed after 0.2.0: `filter(d > 0)` dropped NaN rows | Emulated (spec §7.14) | P-i / diff |
 | FP-12 | `+∞` plus `-∞` (`sum`, `avg`, `+` of both infinities) | NaN | Fatal error -400 `<ILLEGAL VALUE>` | `MborobakArithmeticError` | Known difference: emulating it would need a check per row in every sum | P-e / diff |
 
 ### 2.6 Ordering and limits

@@ -854,8 +854,117 @@ class Renderer:
             parts.append("ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING")  # whole partition
         return " ".join(parts)
 
+    # ---------------------------------------------------------------- NaN in comparisons (§7.14)
+    @staticmethod
+    def nan_kind(e: E.Expr) -> str:
+        """'never', 'always' or 'maybe' NaN; 'null' for a NULL literal."""
+        if isinstance(e, E.Literal):
+            if e.value is None:
+                return "null"
+            return "always" if isinstance(e.value, float) and math.isnan(e.value) else "never"
+        return "maybe" if isinstance(infer(e)[0], DoubleType) else "never"
+
+    def _note_nan(self) -> None:
+        note = "NaN: double comparisons test x <> x first, as Spark orders NaN above every value"
+        if note not in self.c.translations:
+            self.c.translations.append(note)
+
+    def nan_comparison(self, e: E.Comparison) -> str | None:
+        """Spark's comparison when a side may be NaN, or None when IRIS's own is right.
+
+        Spark orders NaN above every double and NaN = NaN. IRIS's answers vary with the plan: NaN sorts
+        below everything between two columns of a row, NaN = NaN is false there and true across a join,
+        and a NaN parameter compares unequal to a NaN column (probe 2026-11-20, §12.7). Only ``x <> x``
+        inside CASE finds NaN reliably, so NaN cases are decided by it and IRIS compares only numbers.
+        """
+        op = "<>" if e.op == "!=" else e.op
+        lk, rk = self.nan_kind(e.left), self.nan_kind(e.right)
+        if "null" in (lk, rk) or (lk == "never" and rk == "never"):
+            return None
+        self._note_nan()
+        a = lambda: self.value(e.left)  # noqa: E731 - each use renders again, so parameters stay in order
+        b = lambda: self.value(e.right)  # noqa: E731
+
+        def result(cmp: int) -> str:  # Spark's result for both sides not NULL; cmp: a against b
+            holds = {"=": cmp == 0, "<>": cmp != 0, "<": cmp < 0, "<=": cmp <= 0, ">": cmp > 0,
+                     ">=": cmp >= 0, "<=>": cmp == 0}[op]
+            return "1" if holds else "0"
+
+        a_lit, b_lit = isinstance(e.left, E.Literal), isinstance(e.right, E.Literal)
+        if op == "<=>":
+            parts = []
+            if not (a_lit or b_lit):
+                parts.append(f"WHEN {a()} IS NULL AND {b()} IS NULL THEN 1")
+            nulls = [f"{x()} IS NULL" for x, lit_ in ((a, a_lit), (b, b_lit)) if not lit_]
+            if nulls:
+                parts.append(f"WHEN {' OR '.join(nulls)} THEN 0")
+        else:
+            nulls = [f"{x()} IS NULL" for x, lit_ in ((a, a_lit), (b, b_lit)) if not lit_]
+            # One side may be NaN, the other is a number literal: keep IRIS's comparison as a conjunct, so
+            # an index still serves it, and fix only the NaN rows.
+            if lk == "maybe" and rk == "never" and b_lit or rk == "maybe" and lk == "never" and a_lit:
+                x = a if lk == "maybe" else b
+                r = result(1 if lk == "maybe" else -1)
+                if r == "1":
+                    return f"({a()} {op} {b()} OR CASE WHEN {x()} <> {x()} THEN 1 ELSE 0 END = 1)"
+                return f"({a()} {op} {b()} AND CASE WHEN {x()} <> {x()} THEN 0 ELSE 1 END = 1)"
+            # Equality of two values that may be NaN: an OR keeps the join condition usable.
+            if op in ("=", "<>") and lk == "maybe" and rk == "maybe":
+                eq = f"({a()} = {b()} OR CASE WHEN {a()} <> {a()} AND {b()} <> {b()} THEN 1 ELSE 0 END = 1)"
+                return eq if op == "=" else f"NOT {eq}"
+            parts = [f"WHEN {' OR '.join(nulls)} THEN NULL"] if nulls else []
+
+        def by_b(when_b_nan: str, when_b_number: str) -> str:
+            if rk == "always":
+                return when_b_nan
+            if rk == "never":
+                return when_b_number
+            return f"CASE WHEN {b()} <> {b()} THEN {when_b_nan} ELSE {when_b_number} END"
+
+        if lk == "always":
+            parts.append(f"ELSE {by_b(result(0), result(1))}")
+        else:
+            if lk == "maybe":
+                parts.append(f"WHEN {a()} <> {a()} THEN {by_b(result(0), result(1))}")
+            if rk == "always":
+                parts.append(f"ELSE {result(-1)}")
+            else:
+                if rk == "maybe":
+                    parts.append(f"WHEN {b()} <> {b()} THEN {result(-1)}")
+                parts.append(f"WHEN {a()} {'=' if op == '<=>' else op} {b()} THEN 1 ELSE 0")
+        if parts[0].startswith("ELSE"):
+            parts.insert(0, "WHEN 1 = 0 THEN NULL")
+        return f"(CASE {' '.join(parts)} END = 1)"
+
+    def nan_in(self, e: E.In) -> str | None:
+        """``x IN (…)`` where x or a value may be NaN (§7.14)."""
+        kinds = [self.nan_kind(v) for v in e.values]
+        child = self.nan_kind(e.child)
+        if child == "never" and "always" not in kinds or child in ("null", "always"):
+            return None
+        self._note_nan()
+        if any(k == "maybe" for k in kinds) or not all(isinstance(v, E.Literal) for v in e.values):
+            return "(" + " OR ".join(self.pred(E.Comparison("=", e.child, v)) for v in e.values) + ")"
+        x = lambda: self.value(e.child)  # noqa: E731
+        others = [v for v, k in zip(e.values, kinds) if k != "always"]
+        has_null = "null" in kinds
+        miss = "NULL" if has_null else "0"
+        if child == "never":  # NaN values never match a number
+            if not others:
+                return f"(CASE WHEN {x()} IS NULL THEN NULL ELSE 0 END = 1)"
+            return self.pred(E.In(e.child, tuple(others)))
+        on_nan = "1" if "always" in kinds else miss
+        parts = [f"WHEN {x()} IS NULL THEN NULL", f"WHEN {x()} <> {x()} THEN {on_nan}"]
+        numbers = [v for v in others if v.value is not None]
+        if numbers:
+            parts.append(f"WHEN {x()} IN ({', '.join(self.value(v) for v in numbers)}) THEN 1")
+        return f"(CASE {' '.join(parts)} ELSE {miss} END = 1)"
+
     def pred(self, e: E.Expr) -> str:
         if isinstance(e, E.Comparison):
+            nan = self.nan_comparison(e)
+            if nan is not None:
+                return nan
             if e.op == "<=>":
                 l1, r1 = self.value(e.left), self.value(e.right)
                 l2, r2 = self.value(e.left), self.value(e.right)
@@ -872,6 +981,9 @@ class Renderer:
         if isinstance(e, E.In):
             if not e.values:
                 return "1 = 0"
+            nan = self.nan_in(e)
+            if nan is not None:
+                return nan
             return f"{self.value(e.child)} IN ({', '.join(self.value(v) for v in e.values)})"
         if isinstance(e, E.Like):
             return f"{self.value(e.child)} LIKE {self.value(e.pattern)}"

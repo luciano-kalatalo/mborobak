@@ -5,6 +5,7 @@
 - Writing tables: `df.write.saveAsTable(name)` with save modes `errorifexists` (default), `append` (columns matched by name, cast by Spark's ANSI store-assignment rules), `overwrite` (new columns; may read the table it replaces) and `ignore`, and `df.write.insertInto(name, overwrite)`. The DataFrame's query runs as `CREATE TABLE` plus `INSERT … SELECT` in one transaction, so the rows never leave IRIS and a failed write changes nothing. String columns are created with `EXACT` collation, so they compare as in Spark; the new setting `mborobak.write.stringLength` sets their length. `format()`, `partitionBy()` and options are accepted and have no effect; file writers (`save`, `parquet`, `csv`) raise `UnsupportedOperationError` (compiler spec §9.7, API contract §4.7, compatibility matrix §2.16).
 - New known difference: decimals written to IRIS keep at most 19 digits before the point, so `decimal(30,2)` reads back as `decimal(21,2)` (matrix WRITE-07).
 - `mborobak-scan` reports `saveAsTable` and `insertInto` as supported.
+- **Fix:** comparisons with NaN follow Spark, which orders NaN above every value and treats NaN = NaN as true. IRIS put NaN below every value and its answers varied with the plan, so `filter(d > 0)` dropped NaN rows and `d < e` was wrong when a side was NaN. Comparisons, `isin`, `between` and `eqNullSafe` on doubles now test for NaN first (compiler spec §7.14, matrix FP-13).
 
 ## 0.2.0 (2026-11-20)
 

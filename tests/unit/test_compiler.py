@@ -239,3 +239,45 @@ def test_constant_casts_are_folded(session):
         fold_cast("1.5", IntegerType())
     with pytest.raises(MborobakArithmeticError):
         fold_cast(float("nan"), IntegerType())
+
+
+# --------------------------------------------------------------------------- NaN in comparisons (§7.14)
+
+
+def _where(df) -> str:
+    return df.toSQL()[0].split("WHERE ", 1)[1]
+
+
+def test_nan_comparisons_with_a_number_keep_the_plain_comparison(session):
+    df = session.table("Sales")
+    assert _where(df.filter(F.col("score") > 0)) == '("score" > ? OR CASE WHEN "score" <> "score" THEN 1 ELSE 0 END = 1)'
+    assert _where(df.filter(F.col("score") <= 1.5)) == \
+        '("score" <= CAST(? AS DOUBLE) AND CASE WHEN "score" <> "score" THEN 0 ELSE 1 END = 1)'
+    assert _where(df.filter(F.lit(0) > F.col("score"))) == \
+        '(? > "score" AND CASE WHEN "score" <> "score" THEN 0 ELSE 1 END = 1)'
+    assert _where(df.filter(F.col("id") > 1)) == '"id" > ?'  # integers are never NaN
+    assert _where(df.filter(F.col("score") > None)) == '"score" > NULL'
+
+
+def test_nan_comparisons_between_doubles(session):
+    df = session.table("Sales")
+    s = F.col("score")
+    assert _where(df.filter(s == s * 2)) == \
+        '("score" = ("score" * ?) OR CASE WHEN "score" <> "score" AND ("score" * ?) <> ("score" * ?) THEN 1 ELSE 0 END = 1)'
+    gt = _where(df.filter(s > s * 2))
+    assert gt.startswith('(CASE WHEN "score" IS NULL OR ("score" * ?) IS NULL THEN NULL WHEN "score" <> "score" THEN '
+                         'CASE WHEN ("score" * ?) <> ("score" * ?) THEN 0 ELSE 1 END')
+    text, params = df.filter(s > s * 2).toSQL()
+    assert params == [2] * text.count("?")
+    assert _where(df.filter(s > float("nan"))) == \
+        '(CASE WHEN "score" IS NULL THEN NULL WHEN "score" <> "score" THEN 0 ELSE 0 END = 1)'
+
+
+def test_nan_in_lists(session):
+    df = session.table("Sales")
+    assert _where(df.filter(F.col("score").isin(float("nan"), 2.5))) == \
+        '(CASE WHEN "score" IS NULL THEN NULL WHEN "score" <> "score" THEN 1 WHEN "score" IN (CAST(? AS DOUBLE)) ' \
+        'THEN 1 ELSE 0 END = 1)'
+    assert _where(df.filter(F.col("id").isin(float("nan"), 2))) == '"id" IN (?)'
+    assert any("NaN" in t for t in df.filter(F.col("score") > 0)._session._compile(
+        df.filter(F.col("score") > 0)._plan).translations)

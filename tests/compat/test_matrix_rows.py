@@ -299,6 +299,29 @@ def test_FP_08_nan_and_infinity_literals(pair):
         F.lit(float("nan")).alias("a"), F.lit(float("inf")).alias("b"), F.lit(float("-inf")).alias("c"))))
 
 
+def test_FP_13_comparisons_with_nan(pair):
+    # NaN is above every double, +inf included, and NaN = NaN; IRIS's own answers vary (compiler spec §7.14)
+    def pairs(F, df):
+        a, b = df.select("id", "d").alias("a"), df.select("id", "d").alias("b")
+        x, y = F.col("a.d"), F.col("b.d")
+        return a.crossJoin(b).select(F.col("a.id").alias("i"), F.col("b.id").alias("j"),
+                                     (x == y).alias("eq"), (x != y).alias("ne"), (x < y).alias("lt"),
+                                     (x <= y).alias("le"), (x > y).alias("gt"), (x >= y).alias("ge"),
+                                     x.eqNullSafe(y).alias("ns"))
+
+    assert_same(*pair.both("nums", pairs))
+    nan = float("nan")
+    for cond in (lambda F: F.col("d") > 0, lambda F: F.col("d") >= 1e300, lambda F: F.col("d") <= 2.5,
+                 lambda F: F.col("d") < float("inf"), lambda F: F.col("d") == nan, lambda F: F.col("d") != nan,
+                 lambda F: F.col("d") > nan, lambda F: F.lit(0.0) < F.col("d"), lambda F: ~(F.col("d") <= 0),
+                 lambda F: F.col("d").isin(nan, 2.5), lambda F: F.col("d").isin(1.0, None),
+                 lambda F: F.col("d").between(0, nan), lambda F: F.col("i").isin(nan),
+                 lambda F: F.col("d") > F.col("i")):
+        assert_same(*pair.both("nums", lambda F, df: df.filter(cond(F)).select("id")))
+        assert_same(*pair.both("nums", lambda F, df: df.select("id", cond(F).alias("c"))))
+    assert_same(*pair.both("nums", lambda F, df: df.filter("d > 0 AND d BETWEEN -1 AND CAST('NaN' AS DOUBLE)").select("id")))
+
+
 @known_difference("FP-10")
 def test_FP_10_minus_1e19_groups_with_null(pair):
     assert_same(*pair.both("nums", lambda F, df: df.filter(F.col("id").isin(7, 9)).groupBy("d").count()))
