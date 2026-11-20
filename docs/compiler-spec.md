@@ -545,6 +545,17 @@ Columns are nullable, as in tables Spark creates. Before anything runs, the writ
 
 **Existence** is checked in `INFORMATION_SCHEMA.TABLES`, case-insensitively, as `table()` does; a `VIEW` there is an `AnalysisError` for `append`, `overwrite` and `insertInto`. After a write, the catalog entry of the target is refreshed, so `session.table(name)` sees the new columns. `session.lastExecution` records the action, all statements, the `INSERT`'s parameters and its row count.
 
+### 9.8 Local data: `createDataFrame` (release 0.2.x)
+
+`session.createDataFrame(data, schema)` (API contract §3.6, `src/mborobak/local.py`) is the one call that sends rows to IRIS. It runs at the call, not at an action:
+
+1. **Schema.** A `StructType`, a DDL string (`"a int, b: string NOT NULL"`, parsed with the type names of §7.13), an atomic type (`"int"`: one column named `value`), a list of names, or `None`. Missing types are inferred from the values as PySpark does: `bool` → `boolean`, `int` → `bigint`, `float` → `double`, `str` → `string`, `Decimal` → `decimal(38,18)`, `date` → `date`, `datetime` → `timestamp_ntz` (Spark: `timestamp`, matrix CDF-07); `None` merges with any type, other mixes are a `TypeError`. A pandas DataFrame gives its types by dtype (integers → `bigint`, floats → `double`, booleans, datetimes → `timestamp_ntz`) and object or string columns by their values, with `None`, NaN, `pd.NA` and `NaT` as NULL. Dict rows are matched by sorted key, or by name when a schema is given.
+2. **Values** are checked and converted as PySpark's `verifySchema` does (matrix CDF-03, CDF-04): no `int` into `double` or `decimal`, no `bool` into `int`, integer ranges, decimals rounded HALF_UP to the scale and checked against the precision, anything into `string` with Python's `str()` (`True` → `'true'`), a `datetime` into `date` keeps its date, an aware `datetime` into `timestamp_ntz` becomes UTC.
+3. **Table.** `CREATE GLOBAL TEMPORARY TABLE "MborobakTemp"."DF<16 hex digits>" ("c1" …, "c2" …)` with the column types of §9.7 (strings `COLLATE EXACT`), then one `executemany` `INSERT`. A global temporary table's definition is shared by the namespace, but its rows belong to the connection that inserted them and go when it closes (probe 2026-11-20: another connection counts 0 rows; 20,000 rows insert in about 0.2 s). Columns are named `c1`, `c2`, … so that any Spark column name works (`a.b`, `c,d`, `a` and `A`, CDF-09).
+4. **Plan.** A `TableScan` of the temporary table (string columns `EXACT`) under a `Project` that renames `c1`, `c2`, … to the DataFrame's names. From here it is an ordinary table: it joins with IRIS tables, and `df.write` can save it.
+
+`session.stop()` drops the session's temporary tables; so does an `atexit` hook, for scripts that never call `stop()`. Dropping a definition another connection still uses would empty that connection's table, so Mborobak only ever drops its own.
+
 ## 10. `explain()`
 
 `df.explain()` prints, without running anything:

@@ -163,6 +163,7 @@ class MborobakSession:
         self._catalog = catalog or Catalog(self._executor.lookup)
         self.catalog = _CatalogAPI(self)
         self._sql_cache: OrderedDict = OrderedDict()
+        self._temp_tables: list = []  # GLOBAL TEMPORARY tables of createDataFrame(), dropped by stop()
         self.lastExecution: ExecutionMetrics | None = None
         self.irisVersion: str | None = None
 
@@ -218,6 +219,17 @@ class MborobakSession:
         info = self._catalog.lookup(tableName, op)
         attrs, unsupported = info.attributes()
         return DataFrame(self, P.TableScan(info.table, attrs, unsupported))
+
+    def createDataFrame(self, data: Any, schema: Any = None, samplingRatio: float | None = None,  # noqa: N802, N803
+                        verifySchema: bool = True):  # noqa: N803
+        """A DataFrame of local rows (tuples, lists, Rows, dicts) or a pandas DataFrame, loaded into a temporary
+        IRIS table of this connection. ``schema``: a StructType, a DDL string ('a int, b string'), a list of
+        column names, or None to infer the types as PySpark does."""
+        from .local import create_data_frame
+
+        loc = caller_location()
+        return create_data_frame(self, data, schema, verifySchema,
+                                 f"createDataFrame at {loc}" if loc else "createDataFrame")
 
     def sql(self, sqlQuery: str, args: list | tuple | dict | None = None):  # noqa: N803
         """A DataFrame over one IRIS SELECT. ``args`` fill its ``?`` markers, in order, or, as a dict, its
@@ -320,6 +332,9 @@ class MborobakSession:
         if self._closed:
             return
         self._closed = True
+        from .local import drop_temp_tables
+
+        drop_temp_tables(self)
         if self._owns_connection and self._connection is not None:
             try:
                 self._connection.close()

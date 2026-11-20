@@ -8,7 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MATRIX = ROOT / "docs" / "compatibility-matrix.md"
 TESTS = [ROOT / "tests" / "compat" / name for name in ("test_matrix_rows.py", "test_functions.py", "test_windows.py",
-                                                       "test_dates.py", "test_expressions.py", "test_writes.py")]
+                                                       "test_dates.py", "test_expressions.py", "test_writes.py",
+                                                       "test_create_dataframe.py")]
 
 _ROW = re.compile(r"^\| ([A-Z]+-\d+)(?: †)? \|(.*)$", re.M)
 # test_FP_04_05_09_x covers FP-04, FP-05, FP-09; test_CAST_01_to_05_x covers CAST-01 … CAST-05.

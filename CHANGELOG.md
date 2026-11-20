@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `createDataFrame(data, schema=None)`: local rows (tuples, lists, `Row`s, dicts) or a pandas DataFrame, with a `StructType`, a DDL string, column names or inferred types, checked as PySpark does. The rows go into a temporary IRIS table that only this connection sees; `stop()` drops it. The result joins with IRIS tables and can be saved with `df.write` (compiler spec §9.8, API contract §3.6, matrix §2.17).
 - Semi and anti joins: `join(other, on, "left_semi")` and `"left_anti"` (with the aliases `semi`, `leftsemi`, `anti`, `leftanti`), by condition or by column names. They compile to `[NOT] EXISTS`, so a left row never repeats (compiler spec §7.15, matrix JOIN-05).
 - `unionByName(other, allowMissingColumns=False)`: union with columns matched by name, case-insensitively; missing columns become NULL with `allowMissingColumns` (matrix UNI-05).
 - `spark.read.table(name)`, the same as `spark.table(name)`. File readers (`read.csv`, `read.parquet`, `read.load` …) raise `UnsupportedOperationError`.

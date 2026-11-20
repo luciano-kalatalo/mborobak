@@ -132,7 +132,7 @@ P0 = required for the MVP; P1 = planned next; P2 = research or future version.
 | Schema | `schema`, `columns`, `dtypes`, `printSchema()` | P0 |
 | Diagnostics | `explain()` (logical plan + generated SQL + parameters) | P0 |
 | Diagnostics | Per-action metrics: client/server time, rows, number of queries | P0 |
-| Data | `createDataFrame()` | P1 |
+| Data | `createDataFrame()` (release 0.2.x) | P1 |
 | Analytics | Window functions and `row_number()`, `rank()`, `lag()`, `lead()` | P1 |
 | Analytics | Date and string functions (documented subset) | P1 |
 | Writing | Table write API (`saveAsTable`, `insertInto`; release 0.2.x) | P1 |
@@ -338,7 +338,7 @@ There is also no generic multi-database layer in the MVP. The architecture must 
 
 1. A notebook compatibility scanner, to measure a client's code against what Mborobak supports.
 2. Null, string and math functions; window functions; date and time functions; SQL-string expressions (`F.expr`, `selectExpr`, `filter("…")`); `dropDuplicates`.
-3. Then table writes (done: `saveAsTable`, `insertInto`), `createDataFrame`, `unionByName`, semi/anti joins, named `sql()` parameters and planner improvements.
+3. Then table writes, `createDataFrame`, `unionByName`, semi/anti joins and named `sql()` parameters (all done in 0.2.x), and planner improvements.
 
 Exit criterion: at least 80% of the calls in representative Databricks notebooks supported, each new function with a PySpark comparison row. Met by 0.2.0: 91% of in-scope calls on the public notebook set, 93% on the sample notebook.
 

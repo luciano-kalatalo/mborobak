@@ -125,7 +125,7 @@ t.cache(); t.na.drop()
 """))
     assert r["spark.table"] == (SUPPORTED, None, 1)
     assert r["spark.sql"][0] == SUPPORTED
-    assert r["spark.createDataFrame"] == (PLANNED, "0.2.x", 1)
+    assert r["spark.createDataFrame"] == (SUPPORTED, None, 1)
     assert r["spark.read"] == (OUT_OF_SCOPE, None, 1)          # format/option/load counted once
     assert r["spark.read.table"] == (SUPPORTED, None, 1)
     assert r["df.write.saveAsTable"] == (SUPPORTED, None, 1)  # mode() is part of it
@@ -187,9 +187,9 @@ def test_coverage_is_cumulative_by_release():
         "df.select(F.col('a'), F.regexp_replace('c', 'x', 'y'), F.explode('d'))",
         "spark.createDataFrame(rows)"))
     cov = report.coverage()
-    # 5 calls: select and col supported; createDataFrame 0.2.x; regexp_replace 0.3; explode not scheduled
-    assert cov["today"] == pytest.approx(2 / 5)
-    assert cov["after 0.2"] == pytest.approx(2 / 5)
+    # 5 calls: select, col and createDataFrame supported; regexp_replace 0.3; explode not scheduled
+    assert cov["today"] == pytest.approx(3 / 5)
+    assert cov["after 0.2"] == pytest.approx(3 / 5)
     assert cov["after 0.2.x"] == pytest.approx(3 / 5)
     assert cov["after 0.3"] == pytest.approx(4 / 5)
 

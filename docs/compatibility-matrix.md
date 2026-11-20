@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-j` | Temporary-table probe 2026-11-20 ([`probes/temp_table_probe.py`](../probes/temp_table_probe.py)), [compiler spec](compiler-spec.md) §9.8 |
 | `P-i` | NaN comparison probe 2026-11-20 ([`probes/nan_comparison_probe.py`](../probes/nan_comparison_probe.py)), [compiler spec](compiler-spec.md) §12.7 |
 | `P-h` | Write probe 2026-11-20 ([`probes/write_probe.py`](../probes/write_probe.py)), [compiler spec](compiler-spec.md) §12.6 |
 | `P-g` | Date and time probe 2026-11-20 ([`probes/date_probe.py`](../probes/date_probe.py)), [compiler spec](compiler-spec.md) §12.5 |
@@ -326,6 +327,23 @@ The dataset `dates` (§3.2) has a leap day, month ends, the year boundary where 
 | WRITE-11 | String length | Unlimited | `VARCHAR` maximum 3641144 characters | `mborobak.write.stringLength`, default 3641144; longer values raise `MborobakExecutionError` | Known difference: an IRIS limit | P-h |
 | WRITE-12 | `format()`, `partitionBy()`, `bucketBy()`, `sortBy()`, options; `save()`, `parquet()`, `csv()`, `json()`, the `path` and `mergeSchema` options | Choose the file layout; write files | — | No effect; `UnsupportedOperationError` for the file writers and the two options | Same / Unsupported | doc |
 
+### 2.17 `createDataFrame` (release 0.2.x)
+
+`session.createDataFrame(data, schema=None)` loads local rows or a pandas DataFrame into a temporary IRIS table of the connection ([compiler spec](compiler-spec.md) §9.8, [API contract](api-contract.md) §3.6). Inference and value checks follow PySpark 4.3 (`verifySchema=True`).
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| CDF-01 | Inferred types: `int` → `bigint`, `float` → `double` (NaN, ±∞, `-0.0`), `str`, `bool`, `date`, `Decimal` → `decimal(38,18)`; names `_1`, `_2`, … | As listed | — | Same; rows in a `GLOBAL TEMPORARY` table | Same | P-j / diff |
+| CDF-02 | Dicts (keys sorted), `Row`s (field order), lists; a list of names, shorter than the rows | As described | — | Same | Same | diff |
+| CDF-03 | Explicit schema (`StructType`, `"a int, b string"`, `"a: int"`, an atomic type such as `"int"`); `Decimal` rounded HALF_UP to the scale; any value into a `string` (`True` → `'true'`, `1e20` → `'1e+20'`); `datetime` into a `date` | As described | — | Same | Same | diff |
+| CDF-04 | Rejected input: `int` into `double` or `decimal`, `float` into `int`, `bool` into `int`, out-of-range integers and decimals, `date` into `timestamp_ntz`, wrong row length, `None` in a non-nullable field, empty data or an all-`None` column without a schema, `int` and `float` in one column | `PySparkTypeError` / `PySparkValueError` | — | `TypeError` / `ValueError` at the call | Same | diff |
+| CDF-05 | pandas DataFrame: integer columns → `bigint` (any width), floats keep NaN, booleans, strings, an integer column with gaps → `double` | As described | — | Same | Same | diff |
+| CDF-06 | A created DataFrame in joins, grouping and comparisons with IRIS tables | Spark's string semantics | — | Strings created `COLLATE EXACT` | Same | diff |
+| CDF-07 | `datetime` values without a schema | `timestamp` (with time zone) | — | `timestamp_ntz` (TIME-01); same values | Known difference, as TIME-05 | diff |
+| CDF-08 | Missing values (`None`, NaN) in a pandas string column | `'nan'` with pandas 3 (PySpark 4.3 warns it doesn't fully support pandas 3) | — | NULL | Known difference: Mborobak keeps the missing value | diff |
+| CDF-09 | Column names IRIS tables can't hold (`a.b`, `c,d`, `a` and `A`) | Allowed | -1, -306 as column names | Allowed: the table's columns are `c1`, `c2`, …, renamed in the query | Same | P-j / diff |
+| CDF-10 | `Decimal` values with more than 19 digits before the point (PySpark infers `decimal(38,18)`) | Kept | `NUMERIC` holds at most 19 integer digits (WRITE-07) | `MborobakExecutionError` when loading | Known difference: an IRIS limit | P-h |
+
 ## 3. Differential test suite
 
 ### 3.1 How a row is verified
@@ -379,6 +397,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 - Timestamps have no time zone (TIME-01); `to_timestamp`, `date_trunc` and `current_timestamp` return `timestamp_ntz` (TIME-05).
 - `session.sql()` takes IRIS SQL, where `GROUP BY 1` means the constant 1 (API-01, GRP-01).
 - With `stringSemantics="iris"`, string comparison, grouping and sorting follow IRIS's case-insensitive rules (§2.1).
+- `createDataFrame` infers `timestamp_ntz` for `datetime` values (CDF-07) and makes missing pandas strings NULL (CDF-08).
 - Writing tables: decimals keep at most 19 digits before the point (WRITE-07); column names with `.`, `,` or `^`, which some default names contain, need an alias (WRITE-09); file writers (`save`, `parquet`, `csv`) are not supported (WRITE-12).
 
 ## 5. Open items

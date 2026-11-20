@@ -66,6 +66,7 @@ Opening the connection is the only network call `getOrCreate()` and `create()` m
 |--------|---------|-------|
 | `table(name)` | `DataFrame` | See §3.4. Runs one schema lookup unless cached |
 | `sql(query, args=None)` | `DataFrame` | See §3.5 |
+| `createDataFrame(data, schema=None, samplingRatio=None, verifySchema=True)` | `DataFrame` | See §3.6 (0.2.x). Runs 2 statements at the call |
 | `read.table(name)` | `DataFrame` | The same as `table(name)` (0.2.x). `read.format()`, `option()`, `options()` and `schema()` return the reader and have no effect; `read.load()`, `csv()`, `parquet()`, `json()` and the other file readers raise `UnsupportedOperationError` |
 | `catalog.refresh(name=None)` | `None` | Drops cached schemas: one table, or all when `name` is `None` |
 | `catalog.tableExists(name)` | `bool` | One schema lookup |
@@ -117,6 +118,14 @@ Unknown `mborobak.*` keys raise `UnsupportedOperationError` listing the valid ke
 - Column types come from the driver's result metadata. A column of a type Mborobak doesn't support (for example `TIME`) raises `UnsupportedTypeError` at the `sql()` call; cast it in the SQL.
 
 **Differs from PySpark:** the SQL dialect is IRIS SQL, not Spark SQL.
+
+### 3.6 `createDataFrame(data, schema=None)`
+
+- `data`: a list of tuples, lists, `Row`s or dicts, a list of scalars (with an atomic `schema` such as `"int"`), or a pandas DataFrame.
+- `schema`: a `StructType`, a DDL string (`"id int, name string"` or `"id: int, name: string"`, `NOT NULL` allowed), an atomic type name, a list of column names (types inferred), or `None` (names and types inferred; names `_1`, `_2`, … for tuples, sorted keys for dicts).
+- Types are inferred and values checked as in PySpark 4.3 (compiler spec §9.8). Invalid input raises `TypeError` or `ValueError` at the call, before anything reaches IRIS. `samplingRatio` is ignored: every row is checked. With `verifySchema=False` and no schema, values are not checked.
+- The rows are loaded at the call into a temporary table of this connection: other connections can't see them, and they go when the connection closes or the session stops. Loading needs `CREATE TABLE` permission in the namespace (schema `MborobakTemp`).
+- **Differs from PySpark:** `datetime` values infer `timestamp_ntz`; missing values in pandas string columns are NULL; `Decimal` values with more than 19 digits before the point raise `MborobakExecutionError` (matrix §2.17).
 
 ## 4. DataFrame
 
@@ -204,7 +213,7 @@ These may run a schema lookup but never a data query.
 
 Calling these raises `UnsupportedOperationError`, which names the release that adds them, instead of `AttributeError`:
 
-- P1: `toLocalIterator`, `createDataFrame`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6; `write`, `unionByName`, and semi and anti joins in 0.2.x, §4.7, §4.1, §4.2.)
+- P1: `toLocalIterator`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6; `write`, `unionByName`, semi and anti joins and `createDataFrame` in 0.2.x, §4.7, §4.1, §4.2, §3.6.)
 - Not planned: `cache`, `persist`, `unpersist`, `checkpoint`, `repartition`, `coalesce`, `rdd`, `foreach`, `mapInPandas`, `toArrow`, streaming, UDFs (P2).
 
 `cache()` and `persist()` raise rather than doing nothing, because a silent no-op would hide the fact that every action re-runs the query.
@@ -438,6 +447,7 @@ Format defined in compiler spec §10. Output is deterministic for a given plan a
 | `schema`, `columns`, `dtypes`, `printSchema()`, `explain()`, `toSQL()` | 0 if all tables are cached | 0 |
 | Any action (§4.4) | 0 if cached | **exactly 1** |
 | `catalog.refresh()` | 0 | 0 |
+| `createDataFrame()` | 0 | 2 statements at the call: `CREATE GLOBAL TEMPORARY TABLE`, and an `INSERT` of all rows (none for empty data) |
 | `write.saveAsTable()`, `write.insertInto()` | 1 existence check, plus 1 column lookup for `append` and `insertInto` | 0 to 4 statements, in one transaction: `CREATE TABLE`, `INSERT`, `DROP TABLE`, `ALTER TABLE` or `DELETE` (compiler spec §9.7) |
 
 Integration tests assert these counts using `ExecutionMetrics` and a counting connection wrapper.

@@ -1,0 +1,87 @@
+{
+ "meta.version": {
+  "result": "IRIS for UNIX (Ubuntu Server LTS for ARM64 Containers) 2026.2 (Build 221U) Fri Jun 26 2026 09:59:12 EDT"
+ },
+ "create": {
+  "sql": "CREATE GLOBAL TEMPORARY TABLE MborobakProbe.G1 (id INT, s VARCHAR(100) COLLATE EXACT, d DOUBLE, n NUMERIC(10,2), b BIT, dt DATE, ts TIMESTAMP)",
+  "status": "ok",
+  "result": null
+ },
+ "read_same_connection": {
+  "sql": "SELECT * FROM MborobakProbe.G1 ORDER BY id",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    "a",
+    NaN,
+    "1.25",
+    true,
+    "2026-01-01",
+    "2026-01-01 01:02:03.456789"
+   ],
+   [
+    2,
+    null,
+    -Infinity,
+    null,
+    false,
+    null,
+    null
+   ]
+  ]
+ },
+ "read_other_connection": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.G1",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "catalog_type": {
+  "sql": "SELECT TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'G1'",
+  "status": "ok",
+  "result": [
+   [
+    "GLOBAL TEMPORARY"
+   ]
+  ]
+ },
+ "self_join": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.G1 a JOIN MborobakProbe.G1 b ON a.id = b.id",
+  "status": "ok",
+  "result": [
+   [
+    2
+   ]
+  ]
+ },
+ "executemany_20000_rows_seconds": {
+  "result": 0.143
+ },
+ "count_20000": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.G2",
+  "status": "ok",
+  "result": [
+   [
+    20000
+   ]
+  ]
+ },
+ "drop_while_other_connection_open": {
+  "sql": "DROP TABLE MborobakProbe.G1",
+  "status": "ok",
+  "result": null
+ },
+ "rows_after_owner_closed": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.G2",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ }
+}

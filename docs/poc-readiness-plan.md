@@ -51,7 +51,7 @@ Script [`probes/function_probe.py`](../probes/function_probe.py), raw output [`p
 
 ### Tier 2: release 0.2.x, round out pipelines
 
-- **`createDataFrame`** from Python data or pandas, as a temporary table in IRIS. Needs write permission; size medium.
+- ~~**`createDataFrame`** from Python data or pandas, as a temporary table in IRIS. Needs write permission; size medium.~~ Done: a `GLOBAL TEMPORARY` table whose rows only the connection sees (compiler spec §9.8, matrix §2.17). This completes tier 2.
 - ~~**Writing tables:** `df.write.saveAsTable(name, mode=...)` via `CREATE TABLE` plus `INSERT … SELECT`, so the data never leaves IRIS. Size medium.~~ Done, with `insertInto` (compiler spec §9.7, matrix §2.16). Each write is one transaction; building it found that IRIS loses a table's rows when a `DROP`, `CREATE` and failing `INSERT` of the same name are rolled back, so `overwrite` goes through a staging table.
 - ~~**`unionByName`**, **semi and anti joins**, **named `sql()` parameters**. Small each.~~ Done, with `spark.read.table` (compiler spec §7.15, matrix JOIN-05, UNI-05, API-02).
 
@@ -74,7 +74,8 @@ Reading files and Delta tables (`spark.read`), Databricks-specific APIs (`displa
 5. ~~SQL-string expressions~~ Done (compiler spec §7.13, matrix §2.15); `dropDuplicates` came with windows. This completes tier 1. Building the parser uncovered a fix for 0.1: a fractional constant beside an integer column was rounded (`7 + 1.5` gave 9, matrix NUM-14).
 6. ~~Release 0.2~~ Released as 0.2.0 on 2026-11-20. Then tier 2 as POCs ask for it, in 0.2.x releases.
 7. ~~Writing tables~~ Done (tier 2), released in 0.2.1 on 2026-11-20: `saveAsTable` with every save mode, and `insertInto`.
-8. ~~Semi and anti joins, `unionByName`, named `sql()` parameters~~ Done (tier 2), with `spark.read.table`. Tier 2 now lacks only `createDataFrame`.
+8. ~~Semi and anti joins, `unionByName`, named `sql()` parameters~~ Done (tier 2), with `spark.read.table`.
+9. ~~`createDataFrame`~~ Done. Tier 2 is complete; what remains is tier 3 (release 0.3).
 
 ## 5. First scan: public Databricks notebooks (2026-11-19)
 
