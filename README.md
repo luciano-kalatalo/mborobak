@@ -187,7 +187,7 @@ They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md)
 
 ## Compatibility and performance
 
-- **Compared with PySpark 4.3.** A differential suite runs the same DataFrame code on Mborobak and on PySpark with ANSI mode on, and compares names, types and rows. 184 matrix rows are checked this way: 161 match, 19 are documented known differences that the suite confirms, and 4 confirm that Mborobak refuses what IRIS can't do (`rangeBetween` with value offsets, column names IRIS can't hold, a few SQL statements and constructs). The main known differences are integer and decimal overflow (not detected), `max` ignoring NaN, IRIS's precision for very wide decimal division, and `timestamp_ntz` where Spark returns `timestamp`.
+- **Compared with PySpark 4.3.** A differential suite runs the same DataFrame code on Mborobak and on PySpark with ANSI mode on, and compares names, types and rows. 201 matrix rows are checked this way: 177 match, 19 are documented known differences that the suite confirms, and 5 confirm that Mborobak refuses what IRIS can't do (`rangeBetween` with value offsets, column names IRIS can't hold, a few SQL statements and constructs, statistics over a window). The main known differences are integer and decimal overflow (not detected), `max` ignoring NaN, IRIS's precision for very wide decimal division, and `timestamp_ntz` where Spark returns `timestamp`.
 - **Benchmarked against hand-written IRIS SQL** through the same driver, at 10k to 1M rows ([report](docs/benchmark-report-2026-11-18.md)). Every result matches. Planning and compilation take about 0.05 ms per action. Queries returning few rows run at hand-written speed; returning many rows costs extra for converting values to Python types (about +20% for 100k rows returned).
 
 ## Tests
@@ -200,7 +200,7 @@ They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md)
 
 ## Status and roadmap
 
-Version 0.3.0. Release 0.1 was built for the InterSystems Open Exchange contest and covered the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md), where the full roadmap lives (§13). Release 0.2 adds what PySpark users on Databricks reach for first. Release 0.3 adds Spark SQL in `sql()` (the default dialect), regular expressions and faster results.
+Version 0.3.1. Release 0.1 was built for the InterSystems Open Exchange contest and covered the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md), where the full roadmap lives (§13). Release 0.2 adds what PySpark users on Databricks reach for first. Release 0.3 adds Spark SQL in `sql()` (the default dialect), regular expressions and faster results; 0.3.1 adds statistics and more functions.
 
 - **0.2, Analytical functions (released):** for proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner; null, string, math, date and time functions; `fillna`/`dropna`; window functions and `dropDuplicates`; `F.expr`/`selectExpr`/`filter("…")`.
 - **0.2.x, Pipelines:** writing tables (`saveAsTable`, `insertInto`, released in 0.2.1); semi and anti joins, `unionByName`, `spark.read.table`, named `sql()` parameters and `createDataFrame` (released in 0.2.2).
