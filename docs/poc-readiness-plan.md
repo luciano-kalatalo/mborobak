@@ -73,7 +73,7 @@ Reading files and Delta tables (`spark.read`), Databricks-specific APIs (`displa
 4. ~~Date and time functions~~ Done, after a focused IRIS probe (compiler spec §7.12, matrix §2.14). Building them uncovered a fix for 0.1: invalid text cast to a date returned `1840-12-31` (matrix CAST-18).
 5. ~~SQL-string expressions~~ Done (compiler spec §7.13, matrix §2.15); `dropDuplicates` came with windows. This completes tier 1. Building the parser uncovered a fix for 0.1: a fractional constant beside an integer column was rounded (`7 + 1.5` gave 9, matrix NUM-14).
 6. ~~Release 0.2~~ Released as 0.2.0 on 2026-11-20. Then tier 2 as POCs ask for it, in 0.2.x releases.
-7. ~~Writing tables~~ Done (tier 2, for the next 0.2.x release): `saveAsTable` with every save mode, and `insertInto`.
+7. ~~Writing tables~~ Done (tier 2), released in 0.2.1 on 2026-11-20: `saveAsTable` with every save mode, and `insertInto`.
 
 ## 5. First scan: public Databricks notebooks (2026-11-19)
 
