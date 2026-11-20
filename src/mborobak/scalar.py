@@ -594,3 +594,6 @@ def _register() -> None:
 
 
 _register()
+
+
+from . import dates as _dates  # noqa: E402,F401 - registers the date and time functions

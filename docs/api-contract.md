@@ -1,6 +1,6 @@
 # API Contract
 
-Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.3 · 2026-11-20
+Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.4 · 2026-11-20
 
 Defines the public Python API of the P0 release: names, signatures, accepted arguments, return values, errors, and the number of queries each call may run. Implements [mborobak-scope.md](mborobak-scope.md) §5 and §7. How a plan becomes SQL is in the [compiler specification](compiler-spec.md) (control document 1); how results compare to PySpark is in the [compatibility matrix](compatibility-matrix.md) (control document 3).
 
@@ -199,7 +199,7 @@ These may run a schema lookup but never a data query.
 
 Calling these raises `UnsupportedOperationError`, which names the release that adds them, instead of `AttributeError`:
 
-- P1: `unionByName`, `toLocalIterator`, `selectExpr`, `filter`/`where` with a string, semi and anti joins, `createDataFrame`, date functions, `write`. (Null, string and math functions, `fillna`, `dropna`, window functions and `dropDuplicates` arrived in 0.2, §6.4, §6.6.)
+- P1: `unionByName`, `toLocalIterator`, `selectExpr`, `filter`/`where` with a string, semi and anti joins, `createDataFrame`, `write`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6.)
 - Not planned: `cache`, `persist`, `unpersist`, `checkpoint`, `repartition`, `coalesce`, `rdd`, `foreach`, `mapInPandas`, `toArrow`, streaming, UDFs (P2).
 
 `cache()` and `persist()` raise rather than doing nothing, because a silent no-op would hide the fact that every action re-runs the query.
@@ -319,6 +319,20 @@ Release 0.2 adds null, string and math functions. Their IRIS SQL is in compiler 
 | `ceil(col)`, `ceiling(col)`, `floor(col)` | `bigint` for integers and doubles, `decimal(p-s+1,0)` for decimals. The `scale` argument is not supported yet |
 | `pow(a, b)`, `power(a, b)`, `sqrt`, `exp`, `ln`, `log(x)`, `log(base, x)`, `log10`, `log2`, `log1p`, `signum`, `sign` | `double`. Out-of-domain inputs give NaN, NULL or infinity as in Spark |
 | `pmod(dividend, divisor)` | Non-negative remainder; a zero divisor raises `MborobakArithmeticError` |
+
+Date and time functions (compiler spec §7.12, compatibility matrix §2.14). Date arguments take dates, timestamps or date text (cast as Spark casts it):
+
+| Function | Notes |
+|----------|-------|
+| `current_date()`, `current_timestamp()`, `now()` | `date`; `timestamp_ntz` (Spark: `timestamp`, matrix TIME-05) |
+| `year`, `month`, `dayofmonth`, `day`, `dayofweek`, `dayofyear`, `weekofyear`, `quarter`, `hour`, `minute`, `second` | `int`; `weekofyear` is ISO 8601 |
+| `date_add(start, days)`, `date_sub(...)`, `add_months(start, months)` | `days`/`months` an integer or an integer column; `date` |
+| `datediff(end, start)` | `int` |
+| `months_between(date1, date2, roundOff=True)` | `double` |
+| `last_day(date)`, `trunc(date, format)` | `date`; `trunc` takes year, quarter, month, week (Spark's spellings); other units give NULL |
+| `date_trunc(format, timestamp)` | `timestamp_ntz`; year … millisecond; other units give NULL |
+| `date_format(date, format)` | `string`; Java pattern letters `y M d D H h m s S a E Q` and quoted text; others raise `UnsupportedOperationError` |
+| `to_date(col, format=None)`, `to_timestamp(col, format=None)` | Without a format, Spark's cast; with one, strict parsing of the pattern letters `yyyy M MM MMM MMMM d dd H HH h hh m mm s ss S a`. Invalid text raises `MborobakCastError` at the action; `yy` raises `UnsupportedOperationError` |
 
 Window functions, each used with `.over(window)` (§6.6):
 

@@ -1,6 +1,6 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.6 · 2026-11-20
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.7 · 2026-11-20
 
 Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
@@ -250,7 +250,9 @@ IRIS doesn't overflow `INTEGER` arithmetic (study §2.6). In P0 this is a **docu
 | boolean → string | `CASE WHEN p THEN 'true' WHEN NOT (p) THEN 'false' END` (or `b = 1` / `b = 0` for a `BIT` value); a plain `CAST` gives `'1'`/`'0'` (CAST-16) |
 | any guarded cast of a constant (`lit("7").cast("int")`) | Folded in Python with Spark's rules and sent as one parameter; invalid input raises the same Mborobak error when the action runs. A constant has no row value for the trigger to depend on (§7.5) |
 | double, decimal → integer, long | `CASE WHEN x IS NULL THEN NULL WHEN x <> x OR x >= 2147483648 OR x <= -2147483649 THEN EXP(100000 + LENGTH(CAST(x AS VARCHAR(60))) - LENGTH(CAST(x AS VARCHAR(60)))) ELSE CAST(x AS INTEGER) END` (bounds ±2⁶³ for `long`) |
-| numeric → string, other numeric → numeric, date/timestamp ↔ string | Plain `CAST` |
+| string → date | `TO_DATE(CASE WHEN s IS NULL THEN NULL WHEN TRIM(s) %PATTERN '4N' THEN TRIM(s) \|\| '-01-01' WHEN … '4N1"-"1.2N' THEN … \|\| '-01' WHEN … '4N1"-"1.2N1"-"1.2N' THEN TRIM(s) WHEN … followed by a space or `T` THEN $PIECE($PIECE(TRIM(s), ' ', 1), 'T', 1) ELSE $LISTGET(s, …) END, 'YYYY-MM-DD')` |
+| string → timestamp | The same date shapes, plus `… 1(1" ",1"T")1.2N1":"1.2N.1(1":"1.2N.1(1"."1.9N))` → `REPLACE(TRIM(s), 'T', ' ')`, inside `TO_TIMESTAMP(…, 'YYYY-MM-DD HH24:MI:SS.FF')` |
+| numeric → string, other numeric → numeric, date/timestamp → string, date ↔ timestamp | Plain `CAST` |
 
 Why each part is there:
 
@@ -260,6 +262,8 @@ Why each part is there:
 - **The integer pattern** rejects what `ISNUMERIC` accepts but an integer cast must not: `'1.5'`, `'1e3'`, `'1.'`, `'.5'`. It accepts an optional sign and leading zeros (`'+3'` → 3, `'007'` → 7). `%PATTERN` alone would accept `'１'`, so both tests are needed. The pattern is emitted as SQL text, not a parameter: it is fixed compiler text, never user input (§9.5).
 
 Verified on 18 inputs **(probe 2026-11-18c)**: the combined rule accepts exactly the integer-shaped strings.
+
+- **Text to date and timestamp** (draft 0.7, probe 2026-11-20, §12.5). IRIS's `CAST(s AS DATE)` returns `1840-12-31` (its day zero) for any text it can't read, including `'abc'`, `''`, `'2026-02-30'` and `' 2026-01-05 '`, without an error; `TO_DATE` is lenient (trailing text, `'2026'` as a day number). The shape test admits exactly Spark's forms, the text is normalized to `yyyy-mm-dd` (`'2026'` → `'2026-01-01'`), and `TO_DATE`/`TO_TIMESTAMP` reject impossible dates and times with an error that `map_error` reports as `MborobakCastError`. Release 0.1 used a plain `CAST` (matrix CAST-18). Verified on 17 inputs against Spark.
 
 **Operands are computed once.** The guarded forms repeat their operand up to 13 times. When the operand is itself an expression (not a column or a constant), it becomes a hidden column of a subquery and the cast refers to that column; nested casts are handled the same way, innermost first. Operands containing an aggregate stay in place, since they must be computed after the `GROUP BY`.
 
@@ -364,6 +368,30 @@ NaN and ±∞ results are parameters (§9.5). Function results are strings or nu
 **`dropDuplicates(subset)`** is a `Project` with `ROW_NUMBER() OVER (PARTITION BY keys ORDER BY keys)` as a hidden column, a `Filter` on it being 1, and a `Project` back to the original columns. Without a subset it is `distinct()`. Which row of a duplicate set is kept is not defined, as in Spark.
 
 Known differences that windows inherit: `max` over a window ignores NaN (matrix FP-06), a `-1E19` partition key merges with NULL (FP-10), and summing `+∞` and `-∞` in one frame fails (FP-12).
+
+### 7.12 Date and time functions (release 0.2)
+
+Date functions take dates, timestamps or date text; text goes through the §7.7 cast (as Spark casts it), timestamps are cast to `DATE` where Spark takes a date, and dates to `TIMESTAMP` where it takes a timestamp. They live in `src/mborobak/dates.py`, in the §7.10 registry.
+
+| Function | IRIS SQL | Why |
+|----------|----------|-----|
+| `year`, `month`, `dayofmonth`, `day`, `dayofweek`, `dayofyear`, `quarter` | Same-named function | `DAYOFWEEK` counts from Sunday = 1, as Spark |
+| `hour`, `minute`, `second` | `HOUR`, `MINUTE`, `DATEPART('ss', …)` of a timestamp | `SECOND()` rounds the fraction; `HOUR(date)` is wrong |
+| `weekofyear` | `FLOOR((DAYOFYEAR(DATEADD('dd', 3 - MOD(DAYOFWEEK(d) + 5, 7), d)) - 1) / 7) + 1` | ISO 8601: the Thursday of the week decides the year; `WEEK()` is not ISO |
+| `date_add`, `date_sub`, `add_months` | `CAST(DATEADD('dd' \| 'mm', n, d) AS DATE)`; `0 - (n)` for `date_sub` | `DATEADD` returns a timestamp; its month arithmetic clamps as Spark's does |
+| `datediff(end, start)` | `DATEDIFF('dd', start, end)` on dates | IRIS's argument order is the reverse |
+| `months_between(a, b, roundOff)` | `CASE` on day of month and `LAST_DAY` for whole months, else months + (day difference × 86400 + seconds of day, with microseconds) / 2678400, then `FLOOR(x × 10⁸ + 0.5) / 10⁸` | Spark's `monthsBetween`, with `Math.round` |
+| `last_day` | `CASE WHEN d IS NULL THEN NULL ELSE LAST_DAY(d) END` | `LAST_DAY(NULL)` is a fatal error |
+| `trunc(d, unit)` | First day of the year, quarter, month or Monday week by `DATEADD` from `DAYOFYEAR`, `MONTH`, `DAYOFMONTH`, `DAYOFWEEK`; NULL for `'day'` and unknown units, as Spark | No `TRUNC` for dates |
+| `date_trunc(unit, ts)` | The same for year … week, cast to `TIMESTAMP`; `day`, `hour`, `minute`, `second`, `millisecond` by `DATEADD` from the day's start; unknown units give NULL | No `DATE_TRUNC` |
+| `date_format(x, pattern)` | The Java pattern tokenized; each field rendered from date parts (`LPAD(MONTH(t), 2, '0')`, `SUBSTRING(MONTHNAME(t), 1, 3)`, `DAYNAME`, 12-hour clock by `MOD`, fractions from `DATEPART('mcs', …)`), literal text as parameters, joined by `\|\|`; NULL for NULL | `TO_CHAR` fails on timestamps |
+| `to_date(s)`, `to_timestamp(s)` | The §7.7 cast | |
+| `to_date(s, p)`, `to_timestamp(s, p)` | `TO_TIMESTAMP(CASE WHEN s IS NULL THEN NULL WHEN s %PATTERN '<shape of p>' THEN s ELSE <trigger> END, '<p in Oracle style>')`, cast to `DATE` for `to_date` | Spark parses strictly (`MM` is two digits, no extra text); IRIS's `TO_TIMESTAMP` is lenient, so the shape is checked first. Letters in quoted text (`'T'`) are blanked in both the text and the format |
+| `current_date`, `current_timestamp`, `now` | `CURRENT_DATE`, `CURRENT_TIMESTAMP(6)` | `CURRENT_TIMESTAMP` alone has no fraction |
+
+Pattern letters for `date_format`: `y` (`yy` gives two digits), `M` to `MMMM`, `d`, `D`, `H`, `h`, `m`, `s`, `S` (up to 9), `a`, `E` to `EEEE`, `Q`; others raise `UnsupportedOperationError` at the call (Spark itself rejects the week-based ones). For parsing: `yyyy`, `M`, `MM`, `MMM`, `MMMM`, `d`, `dd`, `H`, `HH`, `h`, `hh`, `m`, `mm`, `s`, `ss`, `S…`, `a`; `yy` is refused because IRIS reads two-digit years in the 1900s. The shape and format are emitted as SQL text built from the user's pattern, with quotes doubled; they are constants of the query, so the statement cache keys on them.
+
+**Types.** Spark's `to_timestamp`, `date_trunc`, `current_timestamp` and `now` return `timestamp`, Spark's type with a time zone; Mborobak returns `timestamp_ntz`, like every Mborobak timestamp (scope §6.8, matrix TIME-05). The values are the same when Spark's session time zone is the one the data was written in.
 
 ## 8. Optional rewrites
 
@@ -636,6 +664,27 @@ Script [`probes/window_probe.py`](../probes/window_probe.py), raw output [`probe
 | `CASE WHEN ROW_NUMBER() OVER (ORDER BY id) = 1 THEN …` | **Never true**: wrong result, no error |
 | `x - LAG(x) OVER (…)`, `CAST(ROW_NUMBER() OVER (…) AS DOUBLE) / 2` | Correct |
 | Result types | `ROW_NUMBER`, `RANK`, `COUNT`, `NTILE`: `BIGINT`; ratios and `AVG`: `DOUBLE` (Mborobak converts to Spark's types) |
+
+### 12.5 Probe 2026-11-20: dates and times
+
+Script [`probes/date_probe.py`](../probes/date_probe.py), raw output [`probes/results-2026-11-20-dates-iris-2026.2.json`](../probes/results-2026-11-20-dates-iris-2026.2.json), IRIS 2026.2; later checks while building the casts are marked †.
+
+| Check | Result |
+|-------|--------|
+| `DATEADD('mm', 1, d)` for 2026-01-31, 2024-02-29; `DATEADD('mm', 12, 2024-02-29)` | 2026-02-28, 2024-03-29, 2025-02-28 (clamped, as Spark); type `TIMESTAMP` |
+| `DATEADD('dd', ?, d)`, `DATEADD('dd', column, d)` | Work |
+| `DATEDIFF('dd', a, b)` on timestamps | Calendar days between the dates, `b − a` |
+| `LAST_DAY(d)`, `LAST_DAY(ts)`; `LAST_DAY(NULL)` † | Correct; fatal error -400 |
+| `WEEK(2027-01-01)`, `DATEPART('isoweek', …)` | 1 (ISO: 53); invalid DATEPART code |
+| `SECOND(23:59:59.999999)`, `DATEPART('ss', …)` † | 60, 59 |
+| `HOUR(d)` of a `DATE` | 18 (wrong) |
+| `DATEPART('ms' / 'mcs', ts)` | 123, 123456 |
+| `CAST(text AS DATE)` for `'abc'`, `''`, `'2026-02-30'`, `'2026-13-01'`, `' 2026-01-05 '`, `'2026/01/05'` † | `1840-12-31` for all, no error |
+| `TO_DATE(text, 'YYYY-MM-DD')`: `'2026-1-5'`, `'2026-01-05x'`, `'2026'`; `'2026-02-30'`, `'abc'` † | Accepted, accepted, day 2026 of IRIS's calendar (1846-07-19); fatal errors |
+| `TO_TIMESTAMP` with `HH24`, `MI`, `SS`, `FF`, `HH12 … AM`, `MON`, `MONTH`; missing time parts; `'2026-01-05 25:00:00'`; `YY` † | Work, lenient about digit counts; error; `26` → 1926 |
+| `TO_CHAR(ts, …)`, `TO_CHAR(d, 'HH24:MI')` | Fatal error -400 |
+| `DAYNAME(d)`, `MONTHNAME(d)` | `'Saturday'`, `'January'` |
+| `CURRENT_TIMESTAMP`, `CURRENT_TIMESTAMP(6)` | No fraction; microseconds |
 
 ## 13. Open questions
 

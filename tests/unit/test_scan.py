@@ -31,22 +31,22 @@ def test_functions_through_module_alias_and_direct_imports():
     r = found(scan_source("""
 from pyspark.sql import functions as F
 import pyspark.sql.functions as G
-from pyspark.sql.functions import col, to_date as td
+from pyspark.sql.functions import col, expr as td
 df.select(F.col("a"), G.sum("b"), col("c"), td(col("d")), F.explode("e"))
 """))
     assert r["F.col"] == (SUPPORTED, None, 3)
     assert r["F.sum"] == (SUPPORTED, None, 1)
-    assert r["F.to_date"] == (PLANNED, "0.2", 1)
+    assert r["F.expr"] == (PLANNED, "0.2", 1)
     assert r["F.explode"] == (NOT_SCHEDULED, None, 1)
     assert r[".select()"] == (SUPPORTED, None, 1)
 
 
 def test_star_import_and_unimported_names():
-    r = found(scan_source("from pyspark.sql.functions import *\ndf.select(to_date(col('a')), lit(0))"))
-    assert r["F.to_date"] == (PLANNED, "0.2", 1)
+    r = found(scan_source("from pyspark.sql.functions import *\ndf.select(expr('a'), lit(0))"))
+    assert r["F.expr"] == (PLANNED, "0.2", 1)
     assert r["F.lit"][0] == SUPPORTED
-    # without the import, a bare to_date() is not a Spark call
-    assert "F.to_date" not in found(scan_source("to_date(a)"))
+    # without the import, a bare expr() is not a Spark call
+    assert "F.expr" not in found(scan_source("expr(a)"))
 
 
 def test_supported_status_comes_from_the_installed_package():
@@ -184,9 +184,9 @@ def test_databricks_source_export():
 def test_coverage_is_cumulative_by_release():
     report = scan_notebook(notebook(
         "from pyspark.sql import functions as F",
-        "df.select(F.col('a'), F.to_date('b'), F.regexp_replace('c', 'x', 'y'), F.explode('d'))"))
+        "df.select(F.col('a'), F.expr('b'), F.regexp_replace('c', 'x', 'y'), F.explode('d'))"))
     cov = report.coverage()
-    # 5 calls: select and col supported; to_date 0.2; regexp_replace 0.3; explode not scheduled
+    # 5 calls: select and col supported; expr 0.2; regexp_replace 0.3; explode not scheduled
     assert cov["today"] == pytest.approx(2 / 5)
     assert cov["after 0.2"] == pytest.approx(3 / 5)
     assert cov["after 0.3"] == pytest.approx(4 / 5)
@@ -211,8 +211,8 @@ def test_sample_notebook_and_cli(capsys, tmp_path):
 
 
 def test_coverage_without_out_of_scope_calls():
-    report = scan_source("from pyspark.sql import functions as F\ndisplay(df.select(F.to_date('a')))")
-    # display out of scope, select supported, to_date planned for 0.2
+    report = scan_source("from pyspark.sql import functions as F\ndisplay(df.select(F.expr('a')))")
+    # display out of scope, select supported, expr planned for 0.2
     assert report.coverage()["today"] == pytest.approx(1 / 3)
     assert report.coverage(in_scope=True)["today"] == pytest.approx(1 / 2)
     assert report.coverage(in_scope=True)["after 0.2"] == pytest.approx(1)

@@ -198,7 +198,8 @@ class Compiler:
         to = e.to
         return ((isinstance(src, StringType) and to.is_numeric)
                 or (isinstance(src, (DoubleType, DecimalType)) and to.is_integral)
-                or (isinstance(src, BooleanType) and isinstance(to, StringType)))
+                or (isinstance(src, BooleanType) and isinstance(to, StringType))
+                or (isinstance(src, StringType) and isinstance(to, (DateType, TimestampNTZType))))
 
     def hoist(self, b: Block, exprs: list[E.Expr]) -> tuple[Block, list[E.Expr]]:
         """Compute the operands of guarded casts once, as hidden columns of a subquery.
@@ -867,6 +868,33 @@ class Renderer:
         # A boolean value (BIT column, CASE, literal) used as a condition.
         return f"{self.value(e)} = 1"
 
+    def text_to_datetime(self, child: E.Expr, to: DataType) -> str:
+        """Spark's (ANSI) cast of text to a date or timestamp (§7.7).
+
+        IRIS's CAST turns invalid text into 1840-12-31 without an error, and reads other forms Spark
+        rejects. The text (trimmed) must have one of Spark's shapes: yyyy, yyyy-m, yyyy-m-d, or yyyy-m-d
+        followed by a space or 'T' and, for a timestamp, h:m[:s[.f]]. Other text reaches the cast
+        trigger (MborobakCastError). An impossible date (Feb 30, month 13) fails in TO_DATE or
+        TO_TIMESTAMP, which is mapped to the same error.
+        """
+        s = lambda: f"TRIM({self.value(child)})"  # noqa: E731
+        date = "4N1\"-\"1.2N1\"-\"1.2N"
+        text = (f"CASE WHEN {self.value(child)} IS NULL THEN NULL "
+                f"WHEN {s()} %PATTERN '4N' THEN {s()} || '-01-01' "
+                f"WHEN {s()} %PATTERN '4N1\"-\"1.2N' THEN {s()} || '-01' ")
+        if isinstance(to, DateType):
+            text += (f"WHEN {s()} %PATTERN '{date}' THEN {s()} "
+                     f"WHEN {s()} %PATTERN '{date}1(1\" \",1\"T\").E' "
+                     f"THEN $PIECE($PIECE({s()}, ' ', 1), 'T', 1) ")
+            return (f"TO_DATE({text}ELSE $LISTGET({self.value(child)}, LENGTH({self.value(child)}) - "
+                    f"LENGTH({self.value(child)}) - 5) END, 'YYYY-MM-DD')")
+        time = "1.2N1\":\"1.2N.1(1\":\"1.2N.1(1\".\"1.9N))"
+        text += (f"WHEN {s()} %PATTERN '{date}' THEN {s()} "
+                 f"WHEN {s()} %PATTERN '{date}1\"T\"' THEN $PIECE($PIECE({s()}, ' ', 1), 'T', 1) "
+                 f"WHEN {s()} %PATTERN '{date}1(1\" \",1\"T\"){time}' THEN REPLACE({s()}, 'T', ' ') ")
+        return (f"TO_TIMESTAMP({text}ELSE $LISTGET({self.value(child)}, LENGTH({self.value(child)}) - "
+                f"LENGTH({self.value(child)}) - 5) END, 'YYYY-MM-DD HH24:MI:SS.FF')")
+
     def cast(self, e: E.Cast) -> str:
         src, _ = infer(e.child)
         to = e.to
@@ -874,6 +902,8 @@ class Renderer:
             return f"CAST(NULL AS {sql_type(to)})"
         if src == to:
             return self.value(e.child)
+        if isinstance(src, StringType) and isinstance(to, (DateType, TimestampNTZType)):
+            return self.text_to_datetime(e.child, to)
         if isinstance(e.child, E.Literal) and (isinstance(src, StringType) and to.is_numeric or
                                                isinstance(src, (DoubleType, DecimalType)) and to.is_integral):
             # A constant has no row to make the error trigger depend on, so the guarded forms below don't

@@ -99,6 +99,24 @@ DATASETS: dict[str, tuple[str, str, list[tuple]]] = {
             (12, None, None, 1e300, D("3.00"), 35),
         ],
     ),
+    "dates": (
+        "id INT, d DATE, ts TIMESTAMP, s VARCHAR(30), f VARCHAR(30), n INT",
+        "id int, d date, ts timestamp_ntz, s string, f string, n int",
+        [
+            (1, datetime.date(2024, 2, 29), datetime.datetime(2024, 2, 29, 8, 30), "2024-02-29", "29/02/2024 08:30", 1),
+            (2, datetime.date(2026, 1, 31), datetime.datetime(2026, 1, 31, 13, 45, 10, 123456), "2026-01-31",
+             "31/01/2026 13:45", -1),
+            (3, datetime.date(2026, 12, 31), datetime.datetime(2026, 12, 31, 23, 59, 59, 999999), " 2026-12-31 ",
+             "31/12/2026 23:59", 12),
+            (4, datetime.date(2027, 1, 1), datetime.datetime(2027, 1, 1, 0, 0, 1), "2027-01-01T10:00:00",
+             "01/01/2027 00:00", 0),
+            (5, datetime.date(2021, 1, 3), datetime.datetime(2021, 1, 3, 12, 0), "2021-1-3", "03/01/2021 12:00", 30),
+            (6, None, None, None, None, None),
+            (7, datetime.date(2026, 3, 1), datetime.datetime(2026, 3, 1, 0, 0), "2026", "01/03/2026 00:00", -13),
+            (8, datetime.date(1999, 12, 31), datetime.datetime(1999, 12, 31, 18, 20, 0, 500000), "1999-12",
+             "31/12/1999 18:20", 2),
+        ],
+    ),
     "times": (
         "id INT, dt DATE, ts TIMESTAMP",
         "id int, dt date, ts timestamp_ntz",
@@ -129,6 +147,11 @@ def spark():
     import sys
 
     os.environ["PYSPARK_PYTHON"] = sys.executable  # Python workers must use this interpreter too
+    # Spark's timestamp (with time zone) values come back in the process's local time: use UTC, the session's
+    os.environ["TZ"] = "UTC"
+    import time
+
+    time.tzset()
     os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
     from pyspark.sql import SparkSession
 

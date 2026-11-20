@@ -57,6 +57,10 @@ _SQLCODE = re.compile(r"SQLCODE:\s*<(-?\d+)>")
 _IRIS_CODE = re.compile(r"<(DIVIDE|ILLEGAL VALUE|MAXNUMBER|RANGE|[A-Z ]+)>[^<]*\^%sqlcq")
 
 
+_BAD_DATETIME = re.compile(r"input to (SQL function )?TO_(DATE|TIMESTAMP)\(\)|todate\+\d+\^%qarfunc|"
+                           r"totimestamp\+\d+\^%qarfunc", re.I)
+
+
 def map_error(exc: Exception, sql: str, operation: str | None, candidates: list[str]) -> Exception:
     text = str(exc)
     m = _SQLCODE.search(text)
@@ -65,6 +69,9 @@ def map_error(exc: Exception, sql: str, operation: str | None, candidates: list[
     iris_code = f"<{code_match.group(1)}>" if code_match else None
     details = dict(sqlcode=sqlcode, iris_code=iris_code, iris_message=text, sql=sql)
     hint = f" (possible causes: {', '.join(candidates)})" if candidates else ""
+    if _BAD_DATETIME.search(text):  # TO_DATE / TO_TIMESTAMP of an impossible date or time (§7.7)
+        return MborobakCastError("invalid input for cast to a date or timestamp" + hint, operation=operation,
+                                 **details)
     if iris_code == "<DIVIDE>":
         return MborobakArithmeticError("division by zero" + hint, operation=operation, **details)
     if iris_code == "<ILLEGAL VALUE>":  # DOUBLE division by zero (and LOG/SQRT domain errors)

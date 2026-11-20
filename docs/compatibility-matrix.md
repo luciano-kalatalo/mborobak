@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.5 · 2026-11-20
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.6 · 2026-11-20
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-g` | Date and time probe 2026-11-20 ([`probes/date_probe.py`](../probes/date_probe.py)), [compiler spec](compiler-spec.md) §12.5 |
 | `P-f` | Window-function probe 2026-11-20 ([`probes/window_probe.py`](../probes/window_probe.py)), [compiler spec](compiler-spec.md) §12.4 |
 | `P-e` | Scalar-function probe 2026-11-19 ([`probes/scalar_function_probe.py`](../probes/scalar_function_probe.py)), [compiler spec](compiler-spec.md) §12.3 |
 | `doc` | PySpark / Spark SQL documentation for 4.x. **Not yet run** |
@@ -111,7 +112,8 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | CAST-11 | `int`, `date`, `timestamp` → string | `'-7'`, `'2026-01-02'`, `'2026-01-02 03:04:05.123456'` | Same text | Plain `CAST` | Same | P-d / diff |
 | CAST-12 | `double` → string | Shortest form (`'2.7'`, `'0.1'`, `'1.0E20'`) | Full binary expansion (`'2.7000000000000001776'`, `'.10000000000000000556'`, `'100000000000000000000'`) | Plain `CAST` | Known difference: rendering Spark's text in SQL is not practical in P0. Fix candidate: raise `UnsupportedOperationError` instead, so no wrong text is produced | P-d / diff |
 | CAST-13 | `decimal(10,4)` → string (`1.5000`) | `'1.5000'` (keeps scale) | `'1.5'` (drops trailing zeros) | Plain `CAST` | Known difference; same fix candidate as CAST-12 | P-d / diff |
-| CAST-14 | string → `date`, `timestamp` (ISO text) | Parsed | Parsed (`'2026-01-02'`, `'… 03:04:05.5'`) | Plain `CAST` | Same; invalid text **to verify** | P-d / diff |
+| CAST-14 | string → `date`, `timestamp` | Spark's shapes, trimmed: `yyyy`, `yyyy-m`, `yyyy-m-d`, then for a date anything after a space or `T`, for a timestamp `h:m[:s[.f]]` | `CAST` accepts other forms and reads `' 2026-01-05 '` as day zero | Shape checked with `%PATTERN`, then `TO_DATE`/`TO_TIMESTAMP` (spec §7.7) | Emulated (spec §7.7) | P-d, P-g / diff |
+| CAST-18 | Invalid text to `date` (`'2026-02-30'`, `'abc'`, `''`, `'2026/01/05'`) | Error `CAST_INVALID_INPUT` | **`CAST` returns `1840-12-31`, no error** | `MborobakCastError`: the shape test reaches the cast trigger; `TO_DATE` fails on impossible dates, mapped to the same error. Release 0.1 returned IRIS's day zero | Emulated (spec §7.7) | P-g / diff |
 | CAST-15 | `double` NaN, +∞, −∞ → `int`/`long` | Error (ANSI) | NaN becomes **0 silently**; ±∞ come back as text (`'inf'`) the driver can't read | Range check (NaN caught by `x <> x`); `MborobakArithmeticError` | Emulated (spec §7.7) | diff |
 | CAST-16 | `boolean` → string | `'true'` / `'false'` | `'1'` / `'0'` (BIT, or the 1/0 `CASE` of a condition) | `CASE … THEN 'true' … THEN 'false' END` | Emulated (spec §7.7) | diff |
 | CAST-17 | Nested casts (`x.cast("string").cast("double").cast("int")`) | Same values as one by one | — | Each guarded cast's operand is computed once, in a subquery column | Same (spec §7.7) | diff |
@@ -170,6 +172,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | TIME-02 | Timestamp literal with an offset | Converted to an instant | Fatal error -400 | Literals are parameters; Python `datetime` with `tzinfo` raises `TypeError` | Unsupported | S§2.7 / — |
 | TIME-03 | `DATE` values in results | `datetime.date` | Driver returns `str` | Converted | Emulated (API contract §5.2) | S§2.7 / diff |
 | TIME-04 | Microseconds | Kept | Kept | Passed through | Same | S§2.7 / diff |
+| TIME-05 | Result type of `to_timestamp`, `date_trunc`, `current_timestamp`, `now` | `timestamp` (with a time zone) | — | `timestamp_ntz`, the type of every Mborobak timestamp (TIME-01); same values when Spark's session time zone is the data's | Known difference by design | P-g / diff |
 
 ### 2.9 Names and identifiers
 
@@ -261,6 +264,27 @@ Null, string and math functions, and `fillna`/`dropna`. The dataset `funcs` (§3
 | WIN-14 | `dropDuplicates(subset)`, `drop_duplicates`, `dropDuplicates()` | One row per key (which one is not defined); without a subset, `distinct()` | — | `ROW_NUMBER() OVER (PARTITION BY keys) = 1`; `DISTINCT` without a subset | Emulated (§7.11) | diff |
 | WIN-15 | `first`/`last` with `ignorenulls=True`; `rowsBetween` without `orderBy` | Supported | No `IGNORE NULLS`; frame rows arbitrary without an order | `NotImplementedError`, `UnsupportedOperationError` | Unsupported | P-f / doc |
 
+### 2.14 Date and time functions (release 0.2)
+
+The dataset `dates` (§3.2) has a leap day, month ends, the year boundary where ISO weeks differ, `23:59:59.999999` and date text in each of Spark's shapes. Values are compared with Spark's session and process in UTC; timestamp results are `timestamp_ntz` (TIME-05).
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| DATE-01 | `year`, `month`, `dayofmonth`/`day`, `dayofweek`, `dayofyear`, `quarter`, `hour`, `minute`, `second` on dates, timestamps and date text | Text and dates cast first; `hour(date)` is 0; `second` truncates | `SECOND()` rounds the fraction (`.999999` → 60); `HOUR(date)` is wrong | `DATEPART('ss', …)`; dates cast to `TIMESTAMP` for time parts; text through CAST-14 | Emulated (spec §7.12) | P-g / diff |
+| DATE-02 | `weekofyear` | ISO 8601 (2027-01-01 is week 53) | `WEEK()` is not ISO (1) | Week of the Thursday of the date's week | Emulated (§7.12) | P-g / diff |
+| DATE-03 | `date_add`, `date_sub`, `add_months` with constants and columns, on timestamps and text | Date result; months clamp to the month's last day | `DATEADD` returns a timestamp; clamps the same way | `CAST(DATEADD(…) AS DATE)` | Emulated (§7.12) | P-g / diff |
+| DATE-04 | `datediff(end, start)` | Days between the dates (times ignored) | `DATEDIFF('dd', start, end)`: the opposite order | Arguments swapped, both cast to `DATE` | Emulated (§7.12) | P-g / diff |
+| DATE-05 | `months_between(a, b, roundOff)` | Whole months for equal days or two month ends, else a 31-day fraction including seconds, rounded to 8 digits | No such function | Spark's formula from date parts | Emulated (§7.12) | P-g / diff |
+| DATE-06 | `last_day` | NULL for NULL | `LAST_DAY(NULL)` is a fatal error | NULL guard | Emulated (§7.12) | P-g / diff |
+| DATE-07 | `trunc(date, unit)`: year, quarter, month, week (Monday); `'day'` and unknown units | NULL for `'day'` and unknown units | No `TRUNC` for dates | `DATEADD` from date parts | Emulated (§7.12) | P-g / diff |
+| DATE-08 | `date_trunc(unit, ts)`: year … millisecond | Unknown units give NULL | No `DATE_TRUNC` | `DATEADD` from date and time parts | Emulated (§7.12) | P-g / diff |
+| DATE-09 | `date_format` with `y M d D H h m s S a E Q` and quoted text | Java patterns | `TO_CHAR` fails on timestamps | Built from date parts, padded with `LPAD`; English month and day names | Emulated (§7.12) | P-g / diff |
+| DATE-10 | `to_date(s)`, `to_date(s, pattern)` | Strict: `'2026-1-5'` fails with `yyyy-MM-dd`; impossible dates fail | `TO_DATE` is lenient and reads `'2026'` as a day number | Shape checked with `%PATTERN` from the pattern, then `TO_TIMESTAMP` with the translated format; failures raise `MborobakCastError` | Emulated (§7.12) | P-g / diff |
+| DATE-11 | `to_timestamp(s)`, `to_timestamp(s, pattern)` | As `to_date`, with time fields | As `TO_DATE` | As DATE-10. Two-digit-year patterns (`yy`) raise `UnsupportedOperationError`: IRIS reads them in the 1900s | Emulated (§7.12) | P-g / diff |
+| DATE-12 | `current_date`, `current_timestamp`, `now` | One value per query | `CURRENT_TIMESTAMP` has no fraction | `CURRENT_DATE`, `CURRENT_TIMESTAMP(6)` | Same | P-g / diff |
+| DATE-13 | Date functions in filters and grouping keys | — | — | Ordinary expressions | Same | diff |
+| DATE-14 | Week-based pattern letters (`w`, `Y`, `u`), `L`, `k`, `K`, zones; `unix_timestamp`, `from_unixtime`, `to_utc_timestamp` | Supported (week letters fail in Spark 3+) | — | `UnsupportedOperationError`, or not offered yet | Unsupported | P-g / doc |
+
 ## 3. Differential test suite
 
 ### 3.1 How a row is verified
@@ -288,6 +312,7 @@ Each section of §2 has a small targeted dataset (scope §8.2):
 | `join_keys` | Keys with NULLs, duplicates, unmatched rows on both sides, mixed-case strings |
 | `times` | Dates and timestamps with microseconds, around midnight and month ends |
 | `sales_small` | The scope §5.3 example: a few hundred rows with skew (scope §8.3) |
+| `dates` | Eight rows: 2024-02-29, month ends, 2026-12-31 / 2027-01-01 (ISO weeks), 2021-01-03, `23:59:59.999999`, `.5` seconds, NULL; date text in each of Spark's shapes and a `dd/MM/yyyy HH:mm` column (§2.14) |
 | `wins` | Twelve rows in five partitions (`'a'`, `'A'`, `'b'`, `'10'`, `'9'`, NULL) with tied order keys, NULL keys, NaN, ±∞, `-1E19` and `1E300` (§2.13) |
 | `funcs` | Strings with empty values, spaces, a tab, accents and numeric-looking text; doubles with NaN, ±∞, `1E300`, `-1E-300` and `.5` ties; decimals around rounding ties; integers and longs with NULLs (§2.12) |
 
@@ -309,7 +334,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 - `rangeBetween` with value offsets is not supported, because IRIS has no `RANGE` frames (WIN-13); `first`/`last` with `ignorenulls=True` neither (WIN-15).
 - Casting `double` and `decimal` values to string gives IRIS's text, not Spark's (CAST-12, CAST-13).
 - `union` is stricter about mixing types (UNI-03).
-- Timestamps have no time zone (TIME-01).
+- Timestamps have no time zone (TIME-01); `to_timestamp`, `date_trunc` and `current_timestamp` return `timestamp_ntz` (TIME-05).
 - `session.sql()` takes IRIS SQL, where `GROUP BY 1` means the constant 1 (API-01, GRP-01).
 - With `stringSemantics="iris"`, string comparison, grouping and sorting follow IRIS's case-insensitive rules (§2.1).
 

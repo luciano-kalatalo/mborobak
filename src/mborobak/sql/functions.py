@@ -445,3 +445,123 @@ def last(col: Column | str, ignorenulls: bool = False) -> Column:
 
 
 __all__ += ["row_number", "rank", "dense_rank", "percent_rank", "cume_dist", "ntile", "lag", "lead", "first", "last"]
+
+
+# --------------------------------------------------------------------------- date and time functions (0.2)
+
+
+def current_date() -> Column:
+    return _f("current_date")
+
+
+def current_timestamp() -> Column:
+    return _f("current_timestamp")
+
+
+def now() -> Column:
+    return _f("now")
+
+
+def year(col: Column | str) -> Column:
+    return _f("year", _col(col))
+
+
+def month(col: Column | str) -> Column:
+    return _f("month", _col(col))
+
+
+def dayofmonth(col: Column | str) -> Column:
+    return _f("dayofmonth", _col(col))
+
+
+def day(col: Column | str) -> Column:
+    return _f("day", _col(col))
+
+
+def dayofweek(col: Column | str) -> Column:
+    return _f("dayofweek", _col(col))
+
+
+def dayofyear(col: Column | str) -> Column:
+    return _f("dayofyear", _col(col))
+
+
+def weekofyear(col: Column | str) -> Column:
+    return _f("weekofyear", _col(col))
+
+
+def quarter(col: Column | str) -> Column:
+    return _f("quarter", _col(col))
+
+
+def hour(col: Column | str) -> Column:
+    return _f("hour", _col(col))
+
+
+def minute(col: Column | str) -> Column:
+    return _f("minute", _col(col))
+
+
+def second(col: Column | str) -> Column:
+    return _f("second", _col(col))
+
+
+def _days(value: Any) -> E.Expr:
+    """An int, or a column (by Column; PySpark reads a str here as a column name too)."""
+    if isinstance(value, (Column, str)):
+        return _col(value)
+    return _int(value, "date arithmetic", "count")
+
+
+def date_add(start: Column | str, days: Any) -> Column:
+    return _f("date_add", _col(start), _days(days))
+
+
+def date_sub(start: Column | str, days: Any) -> Column:
+    return _f("date_sub", _col(start), _days(days))
+
+
+def add_months(start: Column | str, months: Any) -> Column:
+    return _f("add_months", _col(start), _days(months))
+
+
+def datediff(end: Column | str, start: Column | str) -> Column:
+    return _f("datediff", _col(end), _col(start))
+
+
+def months_between(date1: Column | str, date2: Column | str, roundOff: bool = True) -> Column:  # noqa: N803
+    return _f("months_between", _col(date1), _col(date2), literal(bool(roundOff)))
+
+
+def last_day(date: Column | str) -> Column:
+    return _f("last_day", _col(date))
+
+
+def trunc(date: Column | str, format: str) -> Column:  # noqa: A002
+    return _f("trunc", _col(date), _str(format, "trunc", "format"))
+
+
+def date_trunc(format: str, timestamp: Column | str) -> Column:  # noqa: A002
+    return _f("date_trunc", _str(format, "date_trunc", "format"), _col(timestamp))
+
+
+def date_format(date: Column | str, format: str) -> Column:  # noqa: A002
+    return _f("date_format", _col(date), _str(format, "date_format", "format"))
+
+
+def to_date(col: Column | str, format: str | None = None) -> Column:  # noqa: A002
+    if format is None:
+        return _f("to_date", _col(col))
+    return _f("to_date", _col(col), _str(format, "to_date", "format"))
+
+
+def to_timestamp(col: Column | str, format: str | None = None) -> Column:  # noqa: A002
+    if format is None:
+        return _f("to_timestamp", _col(col))
+    return _f("to_timestamp", _col(col), _str(format, "to_timestamp", "format"))
+
+
+__all__ += ["current_date", "current_timestamp", "now", "year", "month", "dayofmonth", "day", "dayofweek",
+            "dayofyear", "weekofyear", "quarter", "hour", "minute", "second", "date_add", "date_sub",
+            "add_months", "datediff", "months_between", "last_day", "trunc", "date_trunc", "date_format",
+            "to_date", "to_timestamp"]
