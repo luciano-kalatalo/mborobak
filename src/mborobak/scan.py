@@ -272,6 +272,8 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         return NOT_SCHEDULED, None, None
     if kind == METHOD:
         if name == "filter(str)":
+            if "selectExpr" in supported[METHOD]:
+                return SUPPORTED, None, "Spark SQL expression"
             return PLANNED, "0.2", "SQL-string condition; use F.col(...) conditions today"
         if name.startswith("join(how="):
             return PLANNED, "0.2.x", "semi and anti joins"

@@ -235,6 +235,7 @@ class Frame:
     kind: str
     start: int | None
     end: int | None
+    written: bool = field(default=False, compare=False)  # from SQL text: Spark names "1 PRECEDING" there
 
 
 @dataclass(frozen=True)

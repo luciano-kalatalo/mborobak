@@ -565,3 +565,13 @@ __all__ += ["current_date", "current_timestamp", "now", "year", "month", "dayofm
             "dayofyear", "weekofyear", "quarter", "hour", "minute", "second", "date_add", "date_sub",
             "add_months", "datediff", "months_between", "last_day", "trunc", "date_trunc", "date_format",
             "to_date", "to_timestamp"]
+
+
+def expr(str: str) -> Column:  # noqa: A002 - PySpark's parameter name
+    """A Spark SQL expression string, with an optional alias: ``F.expr("price * qty AS total")``."""
+    from ..sqlexpr import parse_named
+
+    return Column(parse_named(str))
+
+
+__all__ += ["expr"]

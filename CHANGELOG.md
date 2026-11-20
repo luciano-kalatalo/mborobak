@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Spark SQL expression strings: `F.expr`, `selectExpr`, `filter("…")`/`where("…")`, with Spark SQL's literal types, operators, `CASE`, `CAST`, functions, aggregates and windows, and Spark's default column names (compiler spec §7.13, compatibility matrix §2.15).
+- **Fix:** a fractional constant beside an integer column (`F.col("i") + 1.5`, `coalesce(i, 1.5)`) is computed exactly; IRIS turned the parameter into an integer (`7 + 1.5` gave 9). Decimal and double constants are now sent as typed parameters (matrix NUM-14).
+- **Fix:** default names of `!=` (`(NOT (a = b))`) and of date and timestamp literals (`DATE '2026-01-01'`) are Spark's.
 - Date and time functions: `current_date`, `current_timestamp`, `now`, `year`, `month`, `dayofmonth`, `day`, `dayofweek`, `dayofyear`, `weekofyear` (ISO), `quarter`, `hour`, `minute`, `second`, `date_add`, `date_sub`, `add_months`, `datediff`, `months_between`, `last_day`, `trunc`, `date_trunc`, `date_format` (Java patterns) and `to_date`/`to_timestamp` with or without a pattern (compiler spec §7.12, compatibility matrix §2.14).
 - **Fix:** casting invalid text to `date` raises `MborobakCastError`, as Spark's ANSI cast does; IRIS returned `1840-12-31` without an error (matrix CAST-18). Text casts to `date` and `timestamp` accept exactly Spark's shapes.
 - Window functions: `Window`/`WindowSpec` with `partitionBy`, `orderBy`, `rowsBetween`, `rangeBetween` (unbounded and current-row bounds); `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first`, `last` and aggregates with `.over()`. Spark's names, types, sort order and analysis errors; filtering on window results works (compiler spec §7.11, compatibility matrix §2.13). `rangeBetween` with value offsets raises `UnsupportedOperationError`: IRIS has no `RANGE` frames.

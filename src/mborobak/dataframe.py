@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 __all__ = ["DataFrame", "GroupedData"]
 
 _LATER = {
-    "unionByName": "P1", "selectExpr": "P1",
+    "unionByName": "P1",
     "toLocalIterator": "P1", "write": "P1", "createOrReplaceTempView": "P1",
 }
 
@@ -119,11 +119,21 @@ class DataFrame:
             items.append(make_attr(output_name(original), resolved, op))
         return self._with(P.Project(self._plan, tuple(unique_ids(items))))
 
+    def selectExpr(self, *expr: str) -> "DataFrame":  # noqa: N802
+        """``select`` of Spark SQL expressions, each with an optional alias: ``selectExpr("a + 1 AS b")``."""
+        from .sqlexpr import parse_named
+
+        exprs = _flatten(expr)
+        if not all(isinstance(e, str) for e in exprs):
+            raise TypeError("selectExpr() takes SQL expression strings")
+        return self.select(*[Column(parse_named(e)) for e in exprs])
+
     def filter(self, condition: Column) -> "DataFrame":
         op = _op("filter")
-        if isinstance(condition, str):
-            raise UnsupportedOperationError("filter() with a SQL string is planned for P1; use F.col(...)",
-                                            operation=op)
+        if isinstance(condition, str):  # Spark SQL expression (API contract §4.1)
+            from .sqlexpr import parse_expression
+
+            condition = Column(parse_expression(condition))
         if not isinstance(condition, Column):
             raise TypeError("filter() takes a Column condition")
         base, (resolved,), restore = self._resolve_with_missing([condition._expr], op)

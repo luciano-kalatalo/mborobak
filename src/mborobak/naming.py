@@ -12,8 +12,11 @@ def _lit_text(value) -> str:
         return "NULL"
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (datetime.date, datetime.datetime)):
-        return str(value)
+    if isinstance(value, datetime.datetime):  # Spark: TIMESTAMP '2026-01-01 10:00:00.5'
+        text = value.isoformat(sep=" ")
+        return f"TIMESTAMP '{text.rstrip('0') if '.' in text else text}'"
+    if isinstance(value, datetime.date):
+        return f"DATE '{value.isoformat()}'"
     return str(value)
 
 
@@ -36,6 +39,8 @@ def expr_name(expr: E.Expr) -> str:
     if isinstance(expr, E.Negate):
         return f"(- {expr_name(expr.child)})"
     if isinstance(expr, E.Comparison):
+        if expr.op == "<>":  # Spark writes a != b as NOT (a = b)
+            return f"(NOT ({expr_name(expr.left)} = {expr_name(expr.right)}))"
         return f"({expr_name(expr.left)} {expr.op} {expr_name(expr.right)})"
     if isinstance(expr, E.And):
         return f"({expr_name(expr.left)} AND {expr_name(expr.right)})"

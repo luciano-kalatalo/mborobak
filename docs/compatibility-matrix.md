@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.6 · 2026-11-20
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.7 · 2026-11-20
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -94,6 +94,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 | NUM-11 | Type of `count` | `LONG`, never NULL | Integer | Converted | Emulated (spec §3) | — / diff |
 | NUM-12 | `decimal` divided by an integer column or literal | `decimal` (`n / 2` → `decimal(14,6)`, `n / i` → `decimal(21,13)`); `decimal / double` → `double` | Decimal division | Spark's decimal typing, an integer literal counted by its digits; no cast to `DOUBLE` | Emulated (spec §3) | diff |
 | NUM-13 | Decimal division whose Spark type has more digits than IRIS computes (`decimal(12,4) / bigint` → `decimal(38,25)`) | Exact to the type's scale (`0.8571428571428571428571429`) | About 19 significant digits (`0.857142857142857142 9`) | Result quantized to the type's scale | Known difference: IRIS's decimal arithmetic precision | diff |
+| NUM-14 | A fractional constant beside an integer column: `i + 1.5`, `i - 0.25`, `coalesce(i, 1.5)` | `8.5`, `6.75`, `1.5` | **The `?` parameter takes the column's integer type: `7 + 1.5` gives 9**, `COALESCE(i, ?)` gives 2; `*` and comparisons are not affected | Decimal and finite double constants sent as `CAST(? AS NUMERIC(p,s))` / `CAST(? AS DOUBLE)` (spec §9.5). Release 0.1 returned IRIS's result | Emulated (spec §9.5) | diff |
 
 ### 2.4 Casts
 
@@ -203,7 +204,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 |----|----------|---------|----------|--------|--------|
 | API-01 | SQL dialect of `session.sql()` | Spark SQL | IRIS SQL | Known difference by design | API contract §3.5 |
 | API-02 | Named `sql()` parameters (`args` as a dict) | Supported | P1 | Unsupported in P0 | API contract §3.5 |
-| API-03 | `filter("x > 1")`, `selectExpr`, `F.expr` | Supported | P1 | Unsupported in P0 | API contract §4.1, §4.6 |
+| API-03 | `filter("x > 1")`, `where(...)`, `selectExpr`, `F.expr` | Supported | Supported (0.2): Spark SQL expressions, §2.15 | Same | API contract §4.1, §6.4 |
 | API-04 | `cache()`, `persist()` | Caches | Raises `UnsupportedOperationError` | Unsupported | API contract §4.6 |
 | API-05 | `spark.*` configuration keys | Accepted | Raise | Unsupported by design | API contract §3.1 |
 | API-06 | Implicit cross join (`join` without `on`) | Allowed (Spark 3+) | Allowed | Same | API contract §4.1 |
@@ -285,6 +286,23 @@ The dataset `dates` (§3.2) has a leap day, month ends, the year boundary where 
 | DATE-13 | Date functions in filters and grouping keys | — | — | Ordinary expressions | Same | diff |
 | DATE-14 | Week-based pattern letters (`w`, `Y`, `u`), `L`, `k`, `K`, zones; `unix_timestamp`, `from_unixtime`, `to_utc_timestamp` | Supported (week letters fail in Spark 3+) | — | `UnsupportedOperationError`, or not offered yet | Unsupported | P-g / doc |
 
+### 2.15 SQL expression strings (release 0.2)
+
+`F.expr("…")`, `df.selectExpr("…", …)` and `df.filter("…")`/`where("…")` take Spark SQL expressions. A parser builds the same nodes as the Column API (`src/mborobak/sqlexpr.py`), so every row above applies to them too. The default column names are Spark's for the SQL text, which differ from the Column API in a few places (`pow(i, 2)`, `LOG(E(), d)`, `between(i, 1, 2)`, `(IF(…))`, frames written `1 PRECEDING`).
+
+| ID | Behavior | PySpark | Mborobak | Status | Evidence |
+|----|----------|---------|----------|--------|----------|
+| EXPR-01 | Literals: `1` int, `10000000000` bigint, `1L`, `1.5` decimal(2,1), `.5`, `1BD`, `1e3` and `2.0D` double, `'…'` and `"…"` with backslash escapes, adjacent strings joined, `true`, `DATE '…'` | Spark SQL's literal types | Same types; decimal and double constants cast (NUM-14) | Same | diff |
+| EXPR-02 | Arithmetic, comparisons (`=`, `==`, `!=`, `<>`, `<=>`), `NOT`, `AND`, `OR`, precedence | Spark's grammar | Same precedence and names (`!=` is `(NOT (a = b))`) | Same | diff |
+| EXPR-03 | `IS [NOT] NULL`, `[NOT] IN (…)`, `[NOT] LIKE`, `[NOT] BETWEEN` | — | As the Column API; strings by code point (STR-16) | Same | diff |
+| EXPR-04 | `CASE` (searched and simple), `CAST(x AS type)`, `if()`, `\|\|` | — | `CAST` type names: `int`, `bigint`, `long`, `double`, `decimal(p,s)`, `string`, `varchar(n)`, `boolean`, `date`, `timestamp` (as `timestamp_ntz`, TIME-05) | Same | diff |
+| EXPR-05 | Function calls (case-insensitive) and aggregates, `count(*)`, `count(DISTINCT x)` | — | Every function of §2.12 to §2.14 by its Spark name | Same | diff |
+| EXPR-06 | Windows: `… OVER (PARTITION BY … ORDER BY … [ASC\|DESC] [NULLS FIRST\|LAST] [ROWS\|RANGE BETWEEN …])` | — | As §2.13 | Same | diff |
+| EXPR-07 | `filter("…")`, `where("…")` | — | Parsed condition | Same | diff |
+| EXPR-08 | `selectExpr("*", "x AS y", "x y", "`a b`")`, `F.expr("x AS y")` | — | Aliases and `*` | Same | diff |
+| EXPR-09 | `RLIKE`/`REGEXP`, `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, `sum(DISTINCT …)`, `count(a, b)`, smallint/tinyint/float literals and types | Supported | `UnsupportedOperationError` (or a parse error for `count(a, b)`) naming the construct | Unsupported | diff |
+| EXPR-10 | Malformed text | `ParseException` | `ParseError` (an `AnalysisError`) with the position, at the call | Same | diff |
+
 ## 3. Differential test suite
 
 ### 3.1 How a row is verified
@@ -331,6 +349,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 - `like` has no escape character (STR-14).
 - Adding `+∞` and `-∞` raises an error instead of giving NaN (FP-12); `pow` overflow raises an error instead of giving infinity (FUN-24); integer overflow in `abs` and `round` is not detected (FUN-25).
 - `initcap` also starts words after tabs (FUN-22); `upper('ß')` stays `'ß'` (FUN-23).
+- SQL expression strings don't support regular expressions (`RLIKE`), `ILIKE`, `DIV`, bitwise operators or subqueries (EXPR-09).
 - `rangeBetween` with value offsets is not supported, because IRIS has no `RANGE` frames (WIN-13); `first`/`last` with `ignorenulls=True` neither (WIN-15).
 - Casting `double` and `decimal` values to string gives IRIS's text, not Spark's (CAST-12, CAST-13).
 - `union` is stricter about mixing types (UNI-03).

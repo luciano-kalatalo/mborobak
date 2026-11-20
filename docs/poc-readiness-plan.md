@@ -71,7 +71,7 @@ Reading files and Delta tables (`spark.read`), Databricks-specific APIs (`displa
 2. ~~Null, string and math functions~~ Done, with `fillna`/`dropna` (compiler spec §7.10, matrix §2.12). Building them uncovered a fix for 0.1: strings that look like numbers sorted as numbers (matrix STR-16).
 3. ~~Window functions~~ Done, with `dropDuplicates` (compiler spec §7.11, matrix §2.13). `rangeBetween` with value offsets stays unsupported: IRIS has no `RANGE` frames.
 4. ~~Date and time functions~~ Done, after a focused IRIS probe (compiler spec §7.12, matrix §2.14). Building them uncovered a fix for 0.1: invalid text cast to a date returned `1840-12-31` (matrix CAST-18).
-5. SQL-string expressions and `dropDuplicates`.
+5. ~~SQL-string expressions~~ Done (compiler spec §7.13, matrix §2.15); `dropDuplicates` came with windows. This completes tier 1. Building the parser uncovered a fix for 0.1: a fractional constant beside an integer column was rounded (`7 + 1.5` gave 9, matrix NUM-14).
 6. Release 0.2, then tier 2 as POCs ask for it.
 
 ## 5. First scan: public Databricks notebooks (2026-11-19)
@@ -99,3 +99,5 @@ After the null, string and math functions (step 2 of §4), in-scope coverage tod
 After window functions and `dropDuplicates` (step 3), in-scope coverage today is **84%** on the dbdemos set and **88%** on the sample: both now pass the 80% exit criterion. What remains planned in the dbdemos set is date functions (`to_timestamp`, `current_timestamp`, `datediff`: 10 calls) and one SQL-string filter.
 
 After date and time functions (step 4), in-scope coverage today is **90%** on both the dbdemos set and the sample notebook. Of the 0.2 items, only SQL-string expressions remain (step 5); the rest of the dbdemos gap is `saveAsTable` (0.2.x), `%sql` cells and regular expressions (0.3).
+
+With SQL-string expressions (step 5), tier 1 is complete: in-scope coverage today is **91%** on the dbdemos set and **93%** on the sample. Nothing planned for 0.2 is left in either; what remains is tier 2 (`saveAsTable`, 4 calls) and tier 3 (`%sql` cells and regular expressions, 9 calls).

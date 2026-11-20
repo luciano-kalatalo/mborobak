@@ -725,6 +725,13 @@ class Renderer:
         if isinstance(value, bool):
             value = int(value)
         self.params.append(value)
+        # §9.5: IRIS types a parameter from the column beside it, and next to an integer column it turns
+        # 1.5 into 2 (i + ?, i - ?, COALESCE(i, ?)). A cast keeps fractional values as they are. NaN and
+        # infinity stay bare parameters.
+        if isinstance(e.dtype, DecimalType):
+            return f"CAST(? AS NUMERIC({e.dtype.precision},{e.dtype.scale}))"
+        if isinstance(e.dtype, DoubleType) and isinstance(value, float) and math.isfinite(value):
+            return "CAST(? AS DOUBLE)"
         return "?"
 
     def value(self, e: E.Expr) -> str:

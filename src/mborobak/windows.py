@@ -77,16 +77,19 @@ def check(w: E.WindowExpr, operation: str | None) -> None:
                                         "in a frame are arbitrary", operation=operation)
 
 
-def _bound(value: int | None, unbounded: str) -> str:
+def _bound(value: int | None, unbounded: str, written: bool) -> str:
     if value is None:
         return f"UNBOUNDED {unbounded}"
     if value == 0:
         return "CURRENT ROW"
-    return f"{value} FOLLOWING"  # Spark writes every offset this way, negative ones included
+    if written and value < 0:
+        return f"{-value} PRECEDING"  # a frame from a SQL expression keeps its words
+    return f"{value} FOLLOWING"  # rowsBetween(-1, …): Spark writes every offset this way, negative ones too
 
 
 def frame_name(fr: E.Frame) -> str:
-    return f"{fr.kind.upper()} BETWEEN {_bound(fr.start, 'PRECEDING')} AND {_bound(fr.end, 'FOLLOWING')}"
+    return (f"{fr.kind.upper()} BETWEEN {_bound(fr.start, 'PRECEDING', fr.written)} AND "
+            f"{_bound(fr.end, 'FOLLOWING', fr.written)}")
 
 
 def order_name(o: E.SortOrder, expr_name) -> str:

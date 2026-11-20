@@ -1,6 +1,6 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.7 · 2026-11-20
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.8 · 2026-11-20
 
 Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
@@ -393,6 +393,16 @@ Pattern letters for `date_format`: `y` (`yy` gives two digits), `M` to `MMMM`, `
 
 **Types.** Spark's `to_timestamp`, `date_trunc`, `current_timestamp` and `now` return `timestamp`, Spark's type with a time zone; Mborobak returns `timestamp_ntz`, like every Mborobak timestamp (scope §6.8, matrix TIME-05). The values are the same when Spark's session time zone is the one the data was written in.
 
+### 7.13 SQL expression strings (release 0.2)
+
+`F.expr`, `selectExpr` and `filter`/`where` with a string parse Spark SQL expressions into the nodes of §4 (`src/mborobak/sqlexpr.py`); nothing downstream knows the expression came from text. The grammar follows Spark's `SqlBaseParser` precedence: `OR` < `AND` < `NOT` < predicates (`BETWEEN`, `IN`, `LIKE`, `IS NULL`) < comparisons < `+ - ||` < `* / %` < unary `- +` < primaries (literals, columns, `CASE`, `CAST`, function calls with `OVER`). Function calls go through `mborobak.sql.functions` by name, so a SQL call and its Column-API call compile alike; constant arguments that PySpark takes as Python values (`ntile(n)`, `lag`'s offset and default) must be literals.
+
+Literal typing is Spark SQL's: integers are `int`, then `bigint`, then `decimal`; a decimal point makes a `decimal` (`1.5` is `decimal(2,1)`); an exponent or `D` a `double`; `L` a `bigint`; `BD` a `decimal`. String literals take backslash escapes, and adjacent literals join (`'a' 'b'`).
+
+Where Spark names a SQL expression differently from its Column-API twin, the parser keeps Spark's name with an internal alias that only sets the default column name: `x BETWEEN a AND b` is `between(x, a, b)` (compiled as `x >= a AND x <= b`, so strings compare by code point), `if(c, a, b)` is `(IF(c, a, b))` (a `CASE`), one-argument `log(x)` is `LOG(E(), x)`, `pow` keeps `pow`, `+x` is `(+ x)`, and a window frame written `1 PRECEDING` keeps those words. `a != b` and `a <> b` are `NOT (a = b)`, as in Spark.
+
+Not supported, each with `UnsupportedOperationError`: `RLIKE`/`REGEXP` and the `regexp_*` functions (IRIS SQL has no regular expressions), `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, `sum(DISTINCT …)`, smallint/tinyint/float. Malformed text raises `ParseError`, an `AnalysisError`, at the call, with the position.
+
 ## 8. Optional rewrites
 
 Each rewrite has a name, a precondition and a session switch (`optimizer.<name>`, default on). The test suite runs every test with all rewrites on and with all off and compares results (scope §6.10).
@@ -457,6 +467,7 @@ Each plan node either **merges** into the current block or **wraps** it: the cur
 ### 9.5 Parameters
 
 - Every `Literal` becomes `?`. The parameter list is built in the order the `?` marks appear in the final text.
+- **Decimal and finite double literals are cast:** `CAST(? AS NUMERIC(p,s))`, `CAST(? AS DOUBLE)` (draft 0.8). IRIS types a parameter from the column beside it, and next to an integer column it truncates or rounds a fractional value: `i + ?` with 1.5 gives `i + 2`, `i - ?` with 0.25 gives `i`, `COALESCE(i, ?)` with 1.5 gives 2 (probe 2026-11-20, matrix NUM-14). Multiplication and comparisons were not affected. Release 0.1 sent bare parameters. Integer, string, date and NaN or infinity parameters stay bare.
 - The compiler counts parameters. Above **900**, it raises `PlanTooLargeError` with the count and the operation that contributed most (usually an `isin()` list). IRIS fails at about 999 (study §2.3); 900 leaves room for literals that IRIS itself extracts.
 - **Fixed compiler text is inline, not a parameter:** the `%PATTERN` string (§7.7), the `DOUBLE` bucket constants (§7.9), the `CASE` results of `NullOrderKey` (§7.4) and boolean projections (§7.8). None of it comes from users, and it stays out of the 900 count. (A `%PATTERN ?` parameter also works, probe 2026-11-18c, but the text form keeps `explain()` readable.)
 - `lit(None)` renders as `NULL` text (wrapped in a `CAST` when the type matters), not as a parameter. A comparison with `None` (`col("x") == None`) follows SQL rules and yields NULL, as in Spark; users test for nulls with `isNull()`.

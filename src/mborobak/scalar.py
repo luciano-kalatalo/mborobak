@@ -581,6 +581,7 @@ def _register() -> None:
     R["ceiling"] = Spec(_t_ceil, _r_ceil)
     R["floor"] = Spec(_t_ceil, _r_ceil, label="FLOOR")
     R["pow"] = Spec(_t_double, _r_pow, label="POWER")
+    R["pow_sql"] = Spec(_t_double, _r_pow, label="pow")  # pow(a, b) written in a SQL expression
     R["sqrt"] = Spec(_t_double, _r_sqrt, label="SQRT")
     R["exp"] = Spec(_t_double, _r_exp, label="EXP")
     R["ln"] = Spec(_t_double_nullable, _r_ln)

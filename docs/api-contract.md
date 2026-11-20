@@ -1,6 +1,6 @@
 # API Contract
 
-Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.4 · 2026-11-20
+Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.5 · 2026-11-20
 
 Defines the public Python API of the P0 release: names, signatures, accepted arguments, return values, errors, and the number of queries each call may run. Implements [mborobak-scope.md](mborobak-scope.md) §5 and §7. How a plan becomes SQL is in the [compiler specification](compiler-spec.md) (control document 1); how results compare to PySpark is in the [compatibility matrix](compatibility-matrix.md) (control document 3).
 
@@ -125,7 +125,8 @@ All return a new `DataFrame`. Column arguments accept a column name (`str`) or a
 | Method | Arguments | Notes |
 |--------|-----------|-------|
 | `select(*cols)` | names, `Column`s, `"*"`, or one list of these | `"*"` expands to all columns |
-| `filter(condition)`, `where(condition)` | `Column` of boolean type | A non-boolean column raises `AnalysisError`. **Differs:** SQL-string conditions (`filter("x > 1")`) are P1 and raise `UnsupportedOperationError` |
+| `filter(condition)`, `where(condition)` | `Column` of boolean type, or a Spark SQL condition string (0.2) | A non-boolean column raises `AnalysisError`. A string is parsed as a Spark SQL expression (§6.7) |
+| `selectExpr(*exprs)` | Spark SQL expression strings, each with an optional alias (`"a + 1 AS b"`), or `"*"` | Same as `select` of `F.expr(...)` (0.2) |
 | `withColumn(colName, col)` | `str`, `Column` | Replaces a column with the same name (case-insensitive), otherwise appends |
 | `withColumns(colsMap)` | `dict[str, Column]` | Several `withColumn`s at once |
 | `withColumnRenamed(existing, new)` | `str`, `str` | No-op when `existing` is not a column, as in PySpark |
@@ -199,7 +200,7 @@ These may run a schema lookup but never a data query.
 
 Calling these raises `UnsupportedOperationError`, which names the release that adds them, instead of `AttributeError`:
 
-- P1: `unionByName`, `toLocalIterator`, `selectExpr`, `filter`/`where` with a string, semi and anti joins, `createDataFrame`, `write`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6.)
+- P1: `unionByName`, `toLocalIterator`, semi and anti joins, `createDataFrame`, `write`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6.)
 - Not planned: `cache`, `persist`, `unpersist`, `checkpoint`, `repartition`, `coalesce`, `rdd`, `foreach`, `mapInPandas`, `toArrow`, streaming, UDFs (P2).
 
 `cache()` and `persist()` raise rather than doing nothing, because a silent no-op would hide the fact that every action re-runs the query.
@@ -298,6 +299,7 @@ Python operator precedence applies: `F.col("a") > 1 & F.col("b") < 2` is a mista
 | `countDistinct(col, *cols)`, `count_distinct(...)` | |
 | `sum(col)`, `avg(col)`, `mean(col)`, `min(col)`, `max(col)` | Types per compiler spec §3 |
 | `asc(name)`, `desc(name)`, and the `_nulls_` variants | Same as the `Column` methods |
+| `expr(str)` | A Spark SQL expression, with an optional alias (§6.7) (0.2) |
 
 Release 0.2 adds null, string and math functions. Their IRIS SQL is in compiler spec §7.10 and their behavior next to PySpark's in the compatibility matrix §2.12.
 
@@ -358,6 +360,12 @@ Accepting a column name where PySpark does (`F.sum("amount")`) works the same wa
 | `rangeBetween` with value offsets, or `(currentRow, currentRow)` | No: `UnsupportedOperationError` (IRIS has no `RANGE` frames, compatibility matrix WIN-13) |
 
 Output names are Spark's, for example `RANK() OVER (PARTITION BY g ORDER BY k ASC NULLS FIRST ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)`; give windowed columns an alias. The compiled SQL is in compiler spec §7.11.
+
+### 6.7 SQL expression strings
+
+`F.expr(str)`, `df.selectExpr(*str)` and `df.filter(str)`/`where(str)` take Spark SQL expressions: literals with Spark SQL's types (`1.5` is a decimal, `1e3` and `2.0D` doubles, `1L` a bigint), column names (backticks for odd names, `a.x` for qualified ones), arithmetic, comparisons, `AND`/`OR`/`NOT`, `IS [NOT] NULL`, `[NOT] IN`, `[NOT] LIKE`, `[NOT] BETWEEN`, `CASE`, `CAST(x AS type)`, `if()`, `||`, every function of §6.4 by name (case-insensitive), `count(*)`, `count(DISTINCT x)`, and windows with `OVER (PARTITION BY … ORDER BY … ROWS/RANGE BETWEEN …)`. An alias may follow (`AS name` or just `name`) in `F.expr` and `selectExpr`. Default column names are Spark's for the SQL text.
+
+Not supported: `RLIKE`/`REGEXP` (planned with regular expressions in 0.3), `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, lambda functions, array and map access: each raises `UnsupportedOperationError`. Malformed text raises `mborobak.sqlexpr.ParseError` (an `AnalysisError`) when the expression is built, naming the position. The details are in compiler spec §7.13.
 
 ### 6.5 Output names
 
