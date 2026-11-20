@@ -22,7 +22,7 @@ def session_with(*description):
         seen.append((sql, params))
         return list(description)
 
-    s = MborobakSession._for_tests(StaticCatalog({}), describer=describer)
+    s = MborobakSession._for_tests(StaticCatalog({}), describer=describer, **{"mborobak.sql.dialect": "iris"})
     return s, seen
 
 

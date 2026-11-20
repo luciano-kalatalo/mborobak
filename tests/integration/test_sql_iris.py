@@ -12,6 +12,12 @@ from mborobak.sql import functions as F
 
 pytestmark = pytest.mark.iris
 
+
+@pytest.fixture(autouse=True)
+def iris_dialect(session):
+    """These tests pass IRIS SQL to sql(); the default dialect is Spark SQL since 0.3."""
+    session.conf.set("mborobak.sql.dialect", "iris")
+
 D = decimal.Decimal
 
 

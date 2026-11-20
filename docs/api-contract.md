@@ -88,7 +88,7 @@ Mborobak settings can be changed at any time with `session.conf.set()`. They app
 | Key | Values | Default | Effect |
 |-----|--------|---------|--------|
 | `mborobak.sql.stringSemantics` | `"pyspark"`, `"iris"` | `"pyspark"` | D10: `%EXACT` handling (compiler spec §7.1) |
-| `mborobak.sql.dialect` | `"iris"`, `"spark"` | `"iris"` | The language of `sql()`: IRIS SQL passed through, or Spark SQL built from DataFrame operations (§3.5, 0.3) |
+| `mborobak.sql.dialect` | `"spark"`, `"iris"` | `"spark"` | The language of `sql()`: Spark SQL built from DataFrame operations, or IRIS SQL passed through (§3.5). The default was `"iris"` before 0.3 |
 | `mborobak.optimizer.enabled` | `bool` | `True` | Turns all optional rewrites on or off (compiler spec §8) |
 | `mborobak.optimizer.<rewrite>` | `bool` | `True` | Turns one rewrite on or off, for example `mborobak.optimizer.pruneColumns` |
 | `mborobak.sql.maxParameters` | `int`, 1–900 | `900` | Parameter count that raises `PlanTooLargeError` (compiler spec §9.5) |
@@ -109,8 +109,8 @@ Unknown `mborobak.*` keys raise `UnsupportedOperationError` listing the valid ke
 
 `sql()` speaks one of two dialects, set by `mborobak.sql.dialect` (§3.3):
 
-- **`"iris"` (default):** `query` is IRIS SQL, passed through as described below.
-- **`"spark"` (0.3):** `query` is a Spark SQL `SELECT`, built from DataFrame operations, so names, types and semantics are Spark's and it compiles to one IRIS statement like any DataFrame (compiler spec §7.17). Supported: `WITH`, `SELECT [DISTINCT]` with `*`, `t.*`, expressions and aliases (everything §6.7 accepts), `FROM` tables (`table` or `schema.table`, with an alias), subqueries and CTEs, joins (`[INNER]`, `LEFT/RIGHT/FULL [OUTER]`, `CROSS`, `LEFT SEMI`, `LEFT ANTI`, a comma) with `ON` or `USING`, `WHERE`, `GROUP BY` expressions, select aliases, ordinals or `ALL`, `HAVING`, `ORDER BY` select aliases, ordinals, expressions and columns the select drops, `LIMIT`, `UNION [ALL | DISTINCT]`. `?` and `:name` markers take `args` as literal values. Not supported, with `UnsupportedOperationError`: other statements (`CREATE`, `INSERT` …; write with `df.write`), `SELECT` without `FROM`, `EXCEPT`/`INTERSECT`, `OFFSET`, `NATURAL JOIN`, three-part names, `ROLLUP`/`CUBE`, `WINDOW`/`QUALIFY`/`LATERAL VIEW`, window functions in an aggregating select, and subqueries in expressions.
+- **`"spark"` (default since 0.3):** `query` is a Spark SQL `SELECT`, built from DataFrame operations, so names, types and semantics are Spark's and it compiles to one IRIS statement like any DataFrame (compiler spec §7.17). Supported: `WITH`, `SELECT [DISTINCT]` with `*`, `t.*`, expressions and aliases (everything §6.7 accepts), `FROM` tables (`table` or `schema.table`, with an alias), subqueries and CTEs, joins (`[INNER]`, `LEFT/RIGHT/FULL [OUTER]`, `CROSS`, `LEFT SEMI`, `LEFT ANTI`, a comma) with `ON` or `USING`, `WHERE`, `GROUP BY` expressions, select aliases, ordinals or `ALL`, `HAVING`, `ORDER BY` select aliases, ordinals, expressions and columns the select drops, `LIMIT`, `UNION [ALL | DISTINCT]`. `?` and `:name` markers take `args` as literal values. Not supported, with `UnsupportedOperationError`: other statements (`CREATE`, `INSERT` …; write with `df.write`), `SELECT` without `FROM`, `EXCEPT`/`INTERSECT`, `OFFSET`, `NATURAL JOIN`, three-part names, `ROLLUP`/`CUBE`, `WINDOW`/`QUALIFY`/`LATERAL VIEW`, window functions in an aggregating select, and subqueries in expressions. For IRIS-only SQL (IRIS functions, `%EXACT`, `TOP`), set the dialect to `"iris"`.
+- **`"iris"`:** `query` is IRIS SQL, passed through as described below. This was the only dialect before 0.3.
 
 In both dialects, `kwargs` fill `{name}` placeholders as in PySpark: a `DataFrame` becomes a relation (Spark dialect only), other values are formatted into the text.
 
@@ -128,7 +128,7 @@ The IRIS dialect:
 - Result columns must have distinct names before transformations can follow; IRIS names unaliased expressions `Expression_1`, `Expression_2`, …, so alias them in the SQL.
 - Column types come from the driver's result metadata. A column of a type Mborobak doesn't support (for example `TIME`) raises `UnsupportedTypeError` at the `sql()` call; cast it in the SQL.
 
-**Differs from PySpark:** with the default dialect, the SQL is IRIS SQL, not Spark SQL; set `mborobak.sql.dialect` to `"spark"` for Spark's.
+**Differs from PySpark:** with `mborobak.sql.dialect = "iris"`, the SQL is IRIS SQL, not Spark SQL.
 
 ### 3.6 `createDataFrame(data, schema=None)`
 

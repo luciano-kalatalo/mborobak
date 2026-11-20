@@ -159,6 +159,7 @@ def test_invalid_columns(conn, src, build, message):
 def test_sql_source_with_cte_puts_with_first(conn, session):
     conn_cursor_description = [("id", 4, None, None, 10, 0, 1)]
     session._describer = lambda sql, params: conn_cursor_description
+    session.conf.set("mborobak.sql.dialect", "iris")
     df = session.sql("WITH q AS (SELECT id FROM App.Src) SELECT id FROM q WHERE id > ?", [1])
     df.write.saveAsTable("App.New")
     insert = statements(conn)[2]

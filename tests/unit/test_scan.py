@@ -165,7 +165,7 @@ def test_notebook_cells_magics_and_locations():
         {"cell_type": "code", "source": "print 'python 2'"},
     ]}, "nb.ipynb")
     r = {f.label: f for f in report.findings.values()}
-    assert r["%sql cell"].status == SUPPORTED and "dialect" in r["%sql cell"].note
+    assert r["%sql cell"].status == SUPPORTED and "spark.sql" in r["%sql cell"].note
     assert str(r["%sql cell"].locations[0]) == "nb.ipynb: cell 3, line 1"
     # imports carry over from cell to cell; a chained call reports its own line
     assert str(r["F.col"].locations[0]) == "nb.ipynb: cell 4, line 2"

@@ -111,7 +111,7 @@ def main() -> None:
     except AmbiguousColumnError as exc:
         print(f"AmbiguousColumnError raised by select(), before any query:\n{exc}")
 
-    heading("7. IRIS SQL in, DataFrame out")
+    heading("7. Spark SQL in, DataFrame out (one IRIS query)")
     top = session.sql(f"SELECT customer_id, SUM(amount) AS total FROM {SCHEMA}.Sales GROUP BY customer_id")
     top.filter(F.col("total") > 50).orderBy(F.col("total").desc()).show()
 

@@ -467,7 +467,7 @@ The bodies follow Spark's results:
 
 ### 7.17 Spark SQL statements (release 0.3)
 
-With `mborobak.sql.dialect = "spark"`, `session.sql(query)` parses a Spark SQL `SELECT` (`src/mborobak/sparksql.py`) and builds it from DataFrame operations: no IRIS SQL is written for it, so every rule of this document applies as it does to the DataFrame API, and the statement becomes one IRIS query. The parser extends the expression parser of §7.13 with the statement grammar of API contract §3.5, `?` and `:name` markers (literal values, as Spark binds them) and `t.*`.
+With `mborobak.sql.dialect = "spark"`, the default since release 0.3, `session.sql(query)` parses a Spark SQL `SELECT` (`src/mborobak/sparksql.py`) and builds it from DataFrame operations: no IRIS SQL is written for it, so every rule of this document applies as it does to the DataFrame API, and the statement becomes one IRIS query. The parser extends the expression parser of §7.13 with the statement grammar of API contract §3.5, `?` and `:name` markers (literal values, as Spark binds them) and `t.*`.
 
 | Clause | DataFrame operation |
 |--------|---------------------|

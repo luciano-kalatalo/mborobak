@@ -31,8 +31,8 @@ _CONNECTION_KEYS = ("host", "port", "namespace", "user", "password", "timeout")
 _SETTINGS: dict[str, tuple[Any, Any]] = {
     # key: (default, validator)
     "mborobak.sql.stringSemantics": ("pyspark", lambda v: v in ("pyspark", "iris")),
-    # sql(): "iris" passes IRIS SQL through; "spark" parses Spark SQL into DataFrame operations (§3.5)
-    "mborobak.sql.dialect": ("iris", lambda v: v in ("iris", "spark")),
+    # sql(): "spark" parses Spark SQL into DataFrame operations; "iris" passes IRIS SQL through (§3.5)
+    "mborobak.sql.dialect": ("spark", lambda v: v in ("iris", "spark")),
     "mborobak.optimizer.enabled": (True, lambda v: isinstance(v, bool)),
     "mborobak.sql.maxParameters": (900, lambda v: isinstance(v, int) and 1 <= v <= 900),
     "mborobak.sql.cacheSize": (256, lambda v: isinstance(v, int) and v >= 0),
@@ -238,8 +238,8 @@ class MborobakSession:
         """A DataFrame over one SELECT. ``args`` fill its ``?`` markers, in order, or, as a dict, its
         ``:name`` markers (Spark's named parameters). ``kwargs`` fill ``{name}`` placeholders, as in PySpark.
 
-        The dialect is IRIS SQL, passed through, unless ``mborobak.sql.dialect`` is ``"spark"``: then the
-        statement is Spark SQL, built from DataFrame operations (compiler spec §7.17)."""
+        The dialect is Spark SQL, built from DataFrame operations (compiler spec §7.17), unless
+        ``mborobak.sql.dialect`` is ``"iris"``: then the statement is IRIS SQL, passed through."""
         from .catalog import type_from_description
         from .dataframe import DataFrame
         from .errors import UnsupportedTypeError

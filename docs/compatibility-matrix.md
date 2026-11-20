@@ -156,7 +156,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 
 | ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
 |----|----------|---------|------|----------|--------|----------|
-| GRP-01 | `groupBy` by a column position in `sql()` (`GROUP BY 1`) | Position | Constant 1 | User's SQL passed through | Known difference in `sql()` only; the compiler never emits positions (spec §7.8) | S§2.3 / doc |
+| GRP-01 | `groupBy` by a column position in `sql()` (`GROUP BY 1`) with the IRIS dialect | Position | Constant 1 | User's SQL passed through (the Spark dialect, the default, takes positions: SQL-03) | Known difference with `mborobak.sql.dialect = "iris"` only; the compiler never emits positions (spec §7.8) | S§2.3 / doc |
 | GRP-02 | Filter after `agg()` | `HAVING` semantics | Same | `HAVING` or outer `WHERE` | Same | — / diff |
 | GRP-03 | `groupBy(k).min()` / `.avg()` without arguments | All numeric columns, grouping columns included | — | Same | Same | diff |
 | JOIN-01 | Join types inner, left, right, full, cross | Supported | Supported | Passed through | Same | P-b / diff |
@@ -208,7 +208,7 @@ Rows marked † depend on `mborobak.sql.stringSemantics`. With the default `"pys
 
 | ID | Behavior | PySpark | Mborobak | Status | Source |
 |----|----------|---------|----------|--------|--------|
-| API-01 | SQL dialect of `session.sql()` | Spark SQL | IRIS SQL by default; Spark SQL with `mborobak.sql.dialect = "spark"` (0.3, §2.19) | Known difference by default; Same with the setting | API contract §3.5 |
+| API-01 | SQL dialect of `session.sql()` | Spark SQL | Spark SQL `SELECT` statements by default since 0.3 (§2.19); IRIS SQL with `mborobak.sql.dialect = "iris"` | Same by default; known difference by design with `"iris"` | API contract §3.5 |
 | API-02 | Named `sql()` parameters (`args` as a dict, `:name` markers) | Supported | Supported (0.2.x): bound as `?` parameters | Same | API contract §3.5 |
 | API-03 | `filter("x > 1")`, `where(...)`, `selectExpr`, `F.expr` | Supported | Supported (0.2): Spark SQL expressions, §2.15 | Same | API contract §4.1, §6.4 |
 | API-04 | `cache()`, `persist()` | Caches | Raises `UnsupportedOperationError` | Unsupported | API contract §4.6 |
@@ -363,7 +363,7 @@ The dataset `dates` (§3.2) has a leap day, month ends, the year boundary where 
 
 ### 2.19 Spark SQL statements (release 0.3)
 
-With `mborobak.sql.dialect = "spark"`, `sql()` takes Spark SQL `SELECT` statements and builds them from DataFrame operations ([compiler spec](compiler-spec.md) §7.17). The differential tests run the same statement on both sides, with the datasets as `{t}` placeholders.
+With `mborobak.sql.dialect = "spark"`, the default since 0.3, `sql()` takes Spark SQL `SELECT` statements and builds them from DataFrame operations ([compiler spec](compiler-spec.md) §7.17). The differential tests run the same statement on both sides, with the datasets as `{t}` placeholders.
 
 | ID | Behavior | PySpark | Mborobak | Status | Evidence |
 |----|----------|---------|----------|--------|----------|
@@ -429,7 +429,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 - Casting `double` and `decimal` values to string gives IRIS's text, not Spark's (CAST-12, CAST-13).
 - `union` is stricter about mixing types (UNI-03).
 - Timestamps have no time zone (TIME-01); `to_timestamp`, `date_trunc` and `current_timestamp` return `timestamp_ntz` (TIME-05).
-- `session.sql()` takes IRIS SQL by default, where `GROUP BY 1` means the constant 1 (API-01, GRP-01); with `mborobak.sql.dialect = "spark"` it takes Spark SQL `SELECT` statements (§2.19).
+- `session.sql()` takes Spark SQL `SELECT` statements (§2.19), not other statements; with `mborobak.sql.dialect = "iris"` it takes IRIS SQL, where `GROUP BY 1` means the constant 1 (API-01, GRP-01).
 - With `stringSemantics="iris"`, string comparison, grouping and sorting follow IRIS's case-insensitive rules (§2.1).
 - `createDataFrame` infers `timestamp_ntz` for `datetime` values (CDF-07) and makes missing pandas strings NULL (CDF-08).
 - Writing tables: decimals keep at most 19 digits before the point (WRITE-07); column names with `.`, `,` or `^`, which some default names contain, need an alias (WRITE-09); file writers (`save`, `parquet`, `csv`) are not supported (WRITE-12).

@@ -36,6 +36,7 @@ def test_repeated_column_gets_its_own_id_and_union_keeps_both(session):
 
 
 def test_same_cte_with_other_args_is_refused(session):
+    session.conf.set("mborobak.sql.dialect", "iris")  # sql() sources: IRIS SQL passed through
     q = "WITH c AS (SELECT id, i FROM t WHERE i > ?) SELECT id, i FROM c"
     x, y = session.sql(q, [5]), session.sql(q, [25])
     with pytest.raises(UnsupportedOperationError, match="same args"):

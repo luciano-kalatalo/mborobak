@@ -22,10 +22,10 @@ def session():
 def test_the_dialect_is_a_setting():
     s = MborobakSession._for_tests(StaticCatalog({"T": [("a", IntegerType())]}),
                                    describer=lambda sql, params: [("a", 4, None, None, 10, 0, 1)])
-    assert s.conf.get("mborobak.sql.dialect") == "iris"
-    assert s.sql("SELECT a FROM T").toSQL()[0] == "SELECT a FROM T"  # passed through
-    s.conf.set("mborobak.sql.dialect", "spark")
+    assert s.conf.get("mborobak.sql.dialect") == "spark"  # the default since 0.3
     assert s.sql("SELECT a FROM T").toSQL()[0] == 'SELECT "a"\nFROM "SQLUser"."T"'
+    s.conf.set("mborobak.sql.dialect", "iris")
+    assert s.sql("SELECT a FROM T").toSQL()[0] == "SELECT a FROM T"  # passed through
     with pytest.raises(ValueError):
         s.conf.set("mborobak.sql.dialect", "postgres")
 
@@ -87,7 +87,8 @@ def test_errors(session, query, error):
 
 
 def test_iris_dialect_formats_plain_values_only():
-    s = MborobakSession._for_tests(StaticCatalog({}), describer=lambda sql, params: [("a", 4, None, None, 10, 0, 1)])
+    s = MborobakSession._for_tests(StaticCatalog({}), describer=lambda sql, params: [("a", 4, None, None, 10, 0, 1)],
+                                   **{"mborobak.sql.dialect": "iris"})
     assert s.sql("SELECT a FROM {t}", t="T").toSQL()[0] == "SELECT a FROM T"
     with pytest.raises(UnsupportedOperationError, match="Spark dialect"):
         s.sql("SELECT a FROM {t}", t=s.sql("SELECT 1 AS a FROM T"))

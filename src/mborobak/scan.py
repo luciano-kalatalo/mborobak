@@ -305,7 +305,7 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         return NOT_SCHEDULED, None, None
     if kind == SESSION:
         if name in supported[SESSION]:
-            note = "IRIS SQL, or Spark SQL with mborobak.sql.dialect = 'spark'" if name == "sql" else None
+            note = "Spark SQL SELECT statements (IRIS SQL with mborobak.sql.dialect = 'iris')" if name == "sql" else None
             return SUPPORTED, None, note
         if name in _PLANNED_SESSION:
             return PLANNED, _PLANNED_SESSION[name], None
@@ -333,7 +333,7 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         return NOT_SCHEDULED, None, None
     if kind == PLATFORM:
         if name == "%sql cell" and "sql(spark)" in supported[SESSION]:
-            return SUPPORTED, None, "as spark.sql(\"…\") with mborobak.sql.dialect = 'spark' (SELECT statements)"
+            return SUPPORTED, None, "as spark.sql(\"…\") (SELECT statements)"
         return _PLATFORM.get(name, (OUT_OF_SCOPE, None, None))
     raise ValueError(kind)
 
