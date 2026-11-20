@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.7 · 2026-11-20
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.8 · 2026-11-20
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-h` | Write probe 2026-11-20 ([`probes/write_probe.py`](../probes/write_probe.py)), [compiler spec](compiler-spec.md) §12.6 |
 | `P-g` | Date and time probe 2026-11-20 ([`probes/date_probe.py`](../probes/date_probe.py)), [compiler spec](compiler-spec.md) §12.5 |
 | `P-f` | Window-function probe 2026-11-20 ([`probes/window_probe.py`](../probes/window_probe.py)), [compiler spec](compiler-spec.md) §12.4 |
 | `P-e` | Scalar-function probe 2026-11-19 ([`probes/scalar_function_probe.py`](../probes/scalar_function_probe.py)), [compiler spec](compiler-spec.md) §12.3 |
@@ -303,6 +304,25 @@ The dataset `dates` (§3.2) has a leap day, month ends, the year boundary where 
 | EXPR-09 | `RLIKE`/`REGEXP`, `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, `sum(DISTINCT …)`, `count(a, b)`, smallint/tinyint/float literals and types | Supported | `UnsupportedOperationError` (or a parse error for `count(a, b)`) naming the construct | Unsupported | diff |
 | EXPR-10 | Malformed text | `ParseException` | `ParseError` (an `AnalysisError`) with the position, at the call | Same | diff |
 
+### 2.16 Writing tables (release 0.2.x)
+
+`df.write.saveAsTable(name, mode)` and `df.write.insertInto(name)` run `CREATE TABLE` and `INSERT … SELECT` inside IRIS, in one transaction ([compiler spec](compiler-spec.md) §9.7, [API contract](api-contract.md) §4.7). The differential tests write the same DataFrame on both sides and read it back with `table()`; Spark's tables are external tables in a temporary directory.
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| WRITE-01 | Round trip of `int`, `bigint`, `double` (NaN, ±∞, `-0.0`, `-1E19`), `decimal`, `string`, `boolean`, `date`, `timestamp_ntz`, and default names such as `(id + 1)` | Same types and values back | `VARCHAR` without a length holds one character; `TIMESTAMP(6)` fails | Column types per compiler spec §9.7; strings as `VARCHAR(3641144)` | Same | P-h / diff |
+| WRITE-02 | Strings in a written table: equality, grouping, ordering | Exact, by code point | Case-insensitive by default (`SQLUPPER`) | Columns created `COLLATE EXACT`, so no `%EXACT` rewrite is needed later | Emulated (spec §9.7) | P-h / diff |
+| WRITE-03 | Save modes `errorifexists` (default), `ignore`, `append`, `overwrite` (new columns) | As named | — | Same; existence checked case-insensitively | Same | diff |
+| WRITE-04 | `append` into an existing table: columns matched by name (any order, any case), types cast by ANSI store assignment (`double` into `int` truncates, numbers into strings) | As described | `8.7` into `INTEGER` gives 8 | Projection with casts before `INSERT` | Same | P-h / diff |
+| WRITE-05 | Unsafe types (`string` into `int`) and overflow (`bigint` 2^40 into `int`) | `AnalysisException`; runtime error, nothing written | -104 | `AnalysisError`; `MborobakExecutionError`, nothing written | Same | P-h / diff |
+| WRITE-06 | `insertInto`: columns by position; `overwrite=True` replaces the rows | As described | — | `INSERT … SELECT`; `DELETE` first | Same | diff |
+| WRITE-07 | `decimal(p,s)` with more than 19 digits before the point (`p − s > 19`), such as `sum` of `decimal(18,2)` | Kept as `decimal(p,s)` | `NUMERIC` holds at most 19 integer digits: precision `19 + s`; larger values fail with -104 | Created as `NUMERIC(p,s)`; reads back as `decimal(19+s, s)` | Known difference: an IRIS limit | P-h / diff |
+| WRITE-08 | `overwrite` of a table the DataFrame reads | Error for file-source tables; allowed for Delta | `DROP`, `CREATE`, failing `INSERT`, `ROLLBACK` loses the old rows | Staging table, then drop and rename: allowed, as in Delta | Emulated (spec §9.7) | P-h |
+| WRITE-09 | Column names with `.`, `,` or `^` (default names such as `date_add(d, 1)` or `round(x, 2)`), or differing only in case | Written | -1, -306 | `AnalysisError` asking for `alias()` | Unsupported | P-h / diff |
+| WRITE-10 | A write that fails part-way (division by zero, overflow, NULL into NOT NULL) | Table creation is undone; a file-source `overwrite` may leave the table emptied; Delta is atomic | DDL and DML roll back | One transaction: the database is as before, as in Delta | Same (as Delta) | P-h |
+| WRITE-11 | String length | Unlimited | `VARCHAR` maximum 3641144 characters | `mborobak.write.stringLength`, default 3641144; longer values raise `MborobakExecutionError` | Known difference: an IRIS limit | P-h |
+| WRITE-12 | `format()`, `partitionBy()`, `bucketBy()`, `sortBy()`, options; `save()`, `parquet()`, `csv()`, `json()`, the `path` and `mergeSchema` options | Choose the file layout; write files | — | No effect; `UnsupportedOperationError` for the file writers and the two options | Same / Unsupported | doc |
+
 ## 3. Differential test suite
 
 ### 3.1 How a row is verified
@@ -356,6 +376,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 - Timestamps have no time zone (TIME-01); `to_timestamp`, `date_trunc` and `current_timestamp` return `timestamp_ntz` (TIME-05).
 - `session.sql()` takes IRIS SQL, where `GROUP BY 1` means the constant 1 (API-01, GRP-01).
 - With `stringSemantics="iris"`, string comparison, grouping and sorting follow IRIS's case-insensitive rules (§2.1).
+- Writing tables: decimals keep at most 19 digits before the point (WRITE-07); column names with `.`, `,` or `^`, which some default names contain, need an alias (WRITE-09); file writers (`save`, `parquet`, `csv`) are not supported (WRITE-12).
 
 ## 5. Open items
 

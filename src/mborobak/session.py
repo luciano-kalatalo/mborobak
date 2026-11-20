@@ -35,6 +35,8 @@ _SETTINGS: dict[str, tuple[Any, Any]] = {
     "mborobak.sql.maxParameters": (900, lambda v: isinstance(v, int) and 1 <= v <= 900),
     "mborobak.sql.cacheSize": (256, lambda v: isinstance(v, int) and v >= 0),
     "mborobak.show.truncate": (20, lambda v: isinstance(v, int) and v >= 0),
+    # VARCHAR length of string columns in tables that df.write creates; IRIS's maximum by default
+    "mborobak.write.stringLength": (3641144, lambda v: isinstance(v, int) and 1 <= v <= 3641144),
 }
 
 

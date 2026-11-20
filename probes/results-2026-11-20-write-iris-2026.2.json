@@ -1,0 +1,1032 @@
+{
+ "meta.version": {
+  "result": "IRIS for UNIX (Ubuntu Server LTS for ARM64 Containers) 2026.2 (Build 221U) Fri Jun 26 2026 09:59:12 EDT"
+ },
+ "varchar_no_length": {
+  "sql": "CREATE TABLE MborobakProbe.W1 (s VARCHAR)",
+  "status": "ok",
+  "result": null
+ },
+ "varchar_no_length.insert_long": {
+  "sql": "INSERT INTO MborobakProbe.W1 (s) SELECT s FROM MborobakProbe.Src WHERE id = 5",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "varchar_no_length.insert_short": {
+  "sql": "INSERT INTO MborobakProbe.W1 (s) SELECT s FROM MborobakProbe.Src WHERE id = 1",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "varchar_no_length.maxlen": {
+  "sql": "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'W1' AND COLUMN_NAME = 's'",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "varchar_huge": {
+  "sql": "CREATE TABLE MborobakProbe.W2 (a VARCHAR(3641144), b VARCHAR(32767) COLLATE EXACT, c VARCHAR(32767) COLLATE %EXACT, d VARCHAR(32767) %EXACT, e VARCHAR(32767))",
+  "status": "ok",
+  "result": null
+ },
+ "varchar_huge.insert_long": {
+  "sql": "INSERT INTO MborobakProbe.W2 (a, b, c, e) SELECT s, s, s, s FROM MborobakProbe.Src WHERE id = 5",
+  "status": "ok",
+  "result": null
+ },
+ "varchar_huge.read_long": {
+  "sql": "SELECT LENGTH(a), LENGTH(b), LENGTH(e) FROM MborobakProbe.W2",
+  "status": "ok",
+  "result": [
+   [
+    5000,
+    5000,
+    5000
+   ]
+  ]
+ },
+ "varchar_huge.collations": {
+  "sql": "SELECT p.SqlFieldName, p.Parameters FROM %Dictionary.CompiledProperty p WHERE p.parent = 'MborobakProbe.W2' ORDER BY p.SqlFieldName",
+  "status": "ok",
+  "result": [
+   [
+    "%%OID",
+    "CALCSELECTIVITY,1,CAPTION,,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,JAVATYPE,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,"
+   ],
+   [
+    "%Concurrency",
+    "CALCSELECTIVITY,1,CAPTION,,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,JAVATYPE,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,"
+   ],
+   [
+    "a",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,3641144,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string"
+   ],
+   [
+    "b",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,EXACT,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,32767,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string"
+   ],
+   [
+    "c",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,EXACT,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,32767,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string"
+   ],
+   [
+    "d",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,EXACT,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,32767,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string"
+   ],
+   [
+    "e",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,32767,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string"
+   ]
+  ]
+ },
+ "varchar_huge.collations_by_classname": {
+  "sql": "SELECT c.COLUMN_NAME, p.Parameters, c.DATA_TYPE, c.CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS c JOIN INFORMATION_SCHEMA.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME LEFT JOIN %Dictionary.CompiledProperty p ON p.parent = t.CLASSNAME AND p.SqlFieldName = c.COLUMN_NAME WHERE c.TABLE_SCHEMA = 'MborobakProbe' AND c.TABLE_NAME = 'W2' ORDER BY c.ORDINAL_POSITION",
+  "status": "ok",
+  "result": [
+   [
+    "a",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,3641144,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string",
+    "varchar",
+    3641144
+   ],
+   [
+    "b",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,EXACT,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,32767,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string",
+    "varchar",
+    32767
+   ],
+   [
+    "c",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,EXACT,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,32767,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string",
+    "varchar",
+    32767
+   ],
+   [
+    "d",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,EXACT,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,32767,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string",
+    "varchar",
+    32767
+   ],
+   [
+    "e",
+    "CALCSELECTIVITY,1,CAPTION,,COLLATION,,COLLATIONTARGET,,CONTENT,STRING,DISPLAYLIST,,ESCAPE,XML,EXTERNALSQLNAME,,EXTERNALSQLTYPE,,INDEXNULLMARKER,,JAVATYPE,,JSONLISTPARAMETER,,JSONTYPE,string,MAXLEN,32767,MINLEN,,PATTERN,,STORAGEDEFAULT,,STORAGEDEFAULTTARGET,,TRUNCATE,0,VALUELIST,,XMLLISTPARAMETER,,XSDTYPE,string",
+    "varchar",
+    32767
+   ]
+  ]
+ },
+ "varchar_beyond_max": {
+  "sql": "CREATE TABLE MborobakProbe.W9 (a VARCHAR(3641145))",
+  "status": "ok",
+  "result": null
+ },
+ "exact_compare": {
+  "sql": "INSERT INTO MborobakProbe.W2 (b, e) SELECT s, s FROM MborobakProbe.Src WHERE id IN (1, 2, 3)",
+  "status": "ok",
+  "result": null
+ },
+ "exact_compare.eq_b": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.W2 WHERE b = 'apple'",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ]
+  ]
+ },
+ "exact_compare.eq_e": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.W2 WHERE e = 'apple'",
+  "status": "ok",
+  "result": [
+   [
+    2
+   ]
+  ]
+ },
+ "exact_compare.trailing_b": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.W2 WHERE b = '  x'",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "exact_compare.distinct_b": {
+  "sql": "SELECT COUNT(DISTINCT b), COUNT(DISTINCT e) FROM MborobakProbe.W2",
+  "status": "ok",
+  "result": [
+   [
+    4,
+    3
+   ]
+  ]
+ },
+ "types.timestamp_precision": {
+  "sql": "CREATE TABLE MborobakProbe.W11 (t TIMESTAMP(6))",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "types.decimal_precisions": {
+  "sql": "CREATE TABLE MborobakProbe.W10 (a NUMERIC(19,0), b NUMERIC(20,2), c NUMERIC(21,0), d NUMERIC(28,2), e NUMERIC(38,10), f NUMERIC(38,18), g NUMERIC(38,38))",
+  "status": "ok",
+  "result": null
+ },
+ "types.decimal_precisions_catalog": {
+  "sql": "SELECT COLUMN_NAME, NUMERIC_PRECISION, NUMERIC_SCALE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'W10' ORDER BY ORDINAL_POSITION",
+  "status": "ok",
+  "result": [
+   [
+    "a",
+    19,
+    0
+   ],
+   [
+    "b",
+    20,
+    2
+   ],
+   [
+    "c",
+    19,
+    0
+   ],
+   [
+    "d",
+    21,
+    2
+   ],
+   [
+    "e",
+    29,
+    10
+   ],
+   [
+    "f",
+    37,
+    18
+   ],
+   [
+    "g",
+    38,
+    38
+   ]
+  ]
+ },
+ "types.decimal_20_digits": {
+  "sql": "INSERT INTO MborobakProbe.W10 (c) VALUES (?)  -- params=[Decimal('12345678901234567890')]",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "types.decimal_29_digits": {
+  "sql": "INSERT INTO MborobakProbe.W10 (e) VALUES (?)  -- params=[Decimal('1234567890123456789.0123456789')]",
+  "status": "ok",
+  "result": null
+ },
+ "types.decimal_29_digits_read": {
+  "sql": "SELECT e FROM MborobakProbe.W10 WHERE e IS NOT NULL",
+  "status": "ok",
+  "result": [
+   [
+    1234567890123456789
+   ]
+  ]
+ },
+ "types": {
+  "sql": "CREATE TABLE MborobakProbe.W3 (i INTEGER, l BIGINT, d DOUBLE, n NUMERIC(10,2), n38 NUMERIC(38,10), b BIT, dt DATE, ts TIMESTAMP)",
+  "status": "ok",
+  "result": null
+ },
+ "types.insert": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i, l, d, n, n38, b, dt, ts) SELECT id, id * 10000000000, d, n, n, CASE WHEN d > 1 THEN 1 WHEN d <= 1 THEN 0 END, dt, ts FROM MborobakProbe.Src",
+  "status": "ok",
+  "result": null,
+  "rowcount": 5
+ },
+ "types.read": {
+  "sql": "SELECT i, l, d, n, n38, b, dt, ts FROM MborobakProbe.W3 ORDER BY i",
+  "status": "ok",
+  "result": [
+   [
+    1,
+    10000000000,
+    1.5,
+    "1.25",
+    "1.25",
+    true,
+    "2026-01-31",
+    "2026-01-31 13:45:10.123456"
+   ],
+   [
+    2,
+    20000000000,
+    NaN,
+    "-2.50",
+    "-2.50",
+    false,
+    null,
+    null
+   ],
+   [
+    3,
+    30000000000,
+    Infinity,
+    null,
+    null,
+    true,
+    "2024-02-29",
+    "2024-02-29 00:00:00.000001"
+   ],
+   [
+    4,
+    40000000000,
+    -0.0,
+    "99999999.99",
+    "99999999.99",
+    false,
+    "1999-12-31",
+    "1999-12-31 23:59:59"
+   ],
+   [
+    5,
+    50000000000,
+    null,
+    "0.01",
+    "0.01",
+    null,
+    "2026-03-01",
+    "2026-03-01 00:00:00"
+   ]
+  ]
+ },
+ "types.catalog": {
+  "sql": "SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE, DATETIME_PRECISION FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'W3' ORDER BY ORDINAL_POSITION",
+  "status": "ok",
+  "result": [
+   [
+    "i",
+    "integer",
+    10,
+    0,
+    null
+   ],
+   [
+    "l",
+    "bigint",
+    19,
+    0,
+    null
+   ],
+   [
+    "d",
+    "double",
+    15,
+    null,
+    null
+   ],
+   [
+    "n",
+    "numeric",
+    10,
+    2,
+    null
+   ],
+   [
+    "n38",
+    "numeric",
+    29,
+    10,
+    null
+   ],
+   [
+    "b",
+    "bit",
+    null,
+    null,
+    null
+   ],
+   [
+    "dt",
+    "date",
+    null,
+    null,
+    null
+   ],
+   [
+    "ts",
+    "timestamp",
+    null,
+    null,
+    null
+   ]
+  ]
+ },
+ "types.nan_computed": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i, d) SELECT 9, CAST('NaN' AS DOUBLE) - 0 FROM MborobakProbe.Src WHERE id = 1",
+  "status": "ok",
+  "result": null
+ },
+ "types.nan_read": {
+  "sql": "SELECT d FROM MborobakProbe.W3 WHERE i = 9",
+  "status": "ok",
+  "result": [
+   [
+    NaN
+   ]
+  ]
+ },
+ "types.decimal_round": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i, n) SELECT 10, 1.005 FROM MborobakProbe.Src WHERE id = 1",
+  "status": "ok",
+  "result": null
+ },
+ "types.decimal_round_read": {
+  "sql": "SELECT n FROM MborobakProbe.W3 WHERE i = 10",
+  "status": "ok",
+  "result": [
+   [
+    "1.01"
+   ]
+  ]
+ },
+ "types.decimal_overflow": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i, n) SELECT 11, 123456789012.5 FROM MborobakProbe.Src WHERE id = 1",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "types.int_overflow": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i) SELECT 12 * 1000000000 FROM MborobakProbe.Src WHERE id = 1",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "types.bit_from_bool": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i, b) SELECT 13, CASE WHEN 1 = 1 THEN 1 ELSE 0 END FROM MborobakProbe.Src WHERE id = 1",
+  "status": "ok",
+  "result": null
+ },
+ "types.bit_from_2": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i, b) SELECT 14, 2 FROM MborobakProbe.Src WHERE id = 1",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "types.text_into_int": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i) SELECT 'abc' FROM MborobakProbe.Src WHERE id = 1",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "types.text_into_date": {
+  "sql": "INSERT INTO MborobakProbe.W3 (i, dt) SELECT 15, 'not a date' FROM MborobakProbe.Src WHERE id = 1",
+  "status": "error",
+  "result": "<ARGUMENT ERROR> Bad argument given; Details: Invalid argument"
+ },
+ "types.leftovers": {
+  "sql": "SELECT i, d, n, b, dt FROM MborobakProbe.W3 WHERE i >= 9 ORDER BY i",
+  "status": "ok",
+  "result": [
+   [
+    9,
+    NaN,
+    null,
+    null,
+    null
+   ],
+   [
+    10,
+    null,
+    "1.01",
+    null,
+    null
+   ],
+   [
+    13,
+    null,
+    null,
+    true,
+    null
+   ]
+  ]
+ },
+ "names": {
+  "sql": "CREATE TABLE MborobakProbe.W4 (\"(i + 1)\" INT, \"count(1)\" INT, \"a.b\" INT, \"MixedCase\" INT, \"Order\" INT, \"1st\" INT, \"with space\" INT, \"%pct\" INT, \"x\"\"q\" INT, \"_u\" INT, \"\u00e7\" INT)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "names.catalog": {
+  "sql": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'W4' ORDER BY ORDINAL_POSITION",
+  "status": "ok",
+  "result": []
+ },
+ "names.insert": {
+  "sql": "INSERT INTO MborobakProbe.W4 (\"(i + 1)\", \"count(1)\", \"a.b\", \"MixedCase\", \"Order\", \"1st\", \"with space\", \"%pct\", \"x\"\"q\", \"_u\", \"\u00e7\") SELECT 1,2,3,4,5,6,7,8,9,10,11 FROM MborobakProbe.Src WHERE id = 1",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-30>:<Table or view not found>]"
+ },
+ "names.read": {
+  "sql": "SELECT \"(i + 1)\", \"x\"\"q\", \"\u00e7\" FROM MborobakProbe.W4",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-30>:<Table or view not found>]"
+ },
+ "names.long_128": {
+  "sql": "CREATE TABLE MborobakProbe.W5 (\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\" INT)",
+  "status": "ok",
+  "result": null
+ },
+ "names.long_129": {
+  "sql": "CREATE TABLE MborobakProbe.W6 (\"ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\" INT)",
+  "status": "ok",
+  "result": null
+ },
+ "names.duplicate_case": {
+  "sql": "CREATE TABLE MborobakProbe.W7 (\"a\" INT, \"A\" INT)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-306>:<Column with this name already exists>]"
+ },
+ "names.id_column": {
+  "sql": "CREATE TABLE MborobakProbe.W8 (\"ID\" INT, \"id2\" INT)",
+  "status": "ok",
+  "result": null
+ },
+ "names.id_column_catalog": {
+  "sql": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'W8' ORDER BY ORDINAL_POSITION",
+  "status": "ok",
+  "result": [
+   [
+    "ID"
+   ],
+   [
+    "id2"
+   ]
+  ]
+ },
+ "names.empty": {
+  "sql": "CREATE TABLE MborobakProbe.W9 (\"\" INT)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "forms.setup": {
+  "sql": "CREATE TABLE MborobakProbe.Stage (id INT, s VARCHAR(100))",
+  "status": "ok",
+  "result": null
+ },
+ "forms.order_by": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT id, s FROM MborobakProbe.Src WHERE id < 5 ORDER BY id DESC",
+  "status": "ok",
+  "result": null
+ },
+ "forms.top": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT TOP 2 id, s FROM MborobakProbe.Src ORDER BY id",
+  "status": "ok",
+  "result": null
+ },
+ "forms.subquery": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT q.id, q.s FROM (SELECT TOP 1 id, s FROM MborobakProbe.Src ORDER BY id DESC) AS q",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "forms.params": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT id + ?, ? FROM MborobakProbe.Src WHERE id = ?  -- params=[100, 'p', 1]",
+  "status": "ok",
+  "result": null
+ },
+ "forms.with_cte": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) WITH q AS (SELECT id, s FROM MborobakProbe.Src) SELECT id, s FROM q WHERE id = 2",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "forms.cte_first": {
+  "sql": "WITH q AS (SELECT id, s FROM MborobakProbe.Src) INSERT INTO MborobakProbe.Stage (id, s) SELECT id, s FROM q WHERE id = 2",
+  "status": "ok",
+  "result": null
+ },
+ "forms.union": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT id, s FROM MborobakProbe.Src WHERE id = 1 UNION ALL SELECT id, s FROM MborobakProbe.Src WHERE id = 2",
+  "status": "ok",
+  "result": null
+ },
+ "forms.union_wrapped": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT * FROM (SELECT id, s FROM MborobakProbe.Src WHERE id = 1 UNION ALL SELECT id, s FROM MborobakProbe.Src WHERE id = 2) AS u",
+  "status": "ok",
+  "result": null
+ },
+ "forms.window": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT ROW_NUMBER() OVER (ORDER BY id), s FROM MborobakProbe.Src",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "forms.limit_offset": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT id, s FROM MborobakProbe.Src ORDER BY id LIMIT 2",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-25>:<Input encountered after end of query>]"
+ },
+ "forms.rowcount_probe": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT id, s FROM MborobakProbe.Src",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]",
+  "rowcount": 2
+ },
+ "forms.self_append": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT id, s FROM MborobakProbe.Stage",
+  "status": "ok",
+  "result": null
+ },
+ "forms.count": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Stage",
+  "status": "ok",
+  "result": [
+   [
+    24
+   ]
+  ]
+ },
+ "forms.zero_rows": {
+  "sql": "INSERT INTO MborobakProbe.Stage (id, s) SELECT id, s FROM MborobakProbe.Src WHERE 1 = 0",
+  "status": "ok",
+  "result": null,
+  "rowcount": 0
+ },
+ "fail.setup": {
+  "sql": "CREATE TABLE MborobakProbe.Tx (id INT, q INT)",
+  "status": "ok",
+  "result": null
+ },
+ "fail.divide": {
+  "sql": "INSERT INTO MborobakProbe.Tx (id, q) SELECT id, 10 / (id - 3) FROM MborobakProbe.Src ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "fail.left_behind": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Tx",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "fail.not_null_setup": {
+  "sql": "CREATE TABLE MborobakProbe.Tx2 (id INT NOT NULL, s VARCHAR(10))",
+  "status": "ok",
+  "result": null
+ },
+ "fail.not_null": {
+  "sql": "INSERT INTO MborobakProbe.Tx2 (id, s) SELECT CASE WHEN id = 3 THEN NULL ELSE id END, 'a' FROM MborobakProbe.Src",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-108>:<Required field missing; INSERT or UPDATE not allowed>]"
+ },
+ "fail.not_null_left": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Tx2",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "fail.too_long": {
+  "sql": "INSERT INTO MborobakProbe.Tx2 (id, s) SELECT id, s FROM MborobakProbe.Src WHERE id = 5",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-104>:<Field validation failed in INSERT, or value failed to convert in DisplayToLogical or OdbcToLogical>]"
+ },
+ "tx.start": {
+  "sql": "START TRANSACTION",
+  "status": "ok",
+  "result": null
+ },
+ "tx.insert": {
+  "sql": "INSERT INTO MborobakProbe.Tx (id, q) SELECT id, id FROM MborobakProbe.Src",
+  "status": "ok",
+  "result": null
+ },
+ "tx.count_inside": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Tx",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ]
+  ]
+ },
+ "tx.rollback": {
+  "sql": "ROLLBACK",
+  "status": "ok",
+  "result": null
+ },
+ "tx.count_after": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Tx",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "tx.ddl_start": {
+  "sql": "START TRANSACTION",
+  "status": "ok",
+  "result": null
+ },
+ "tx.ddl_create": {
+  "sql": "CREATE TABLE MborobakProbe.Ddl (id INT)",
+  "status": "ok",
+  "result": null
+ },
+ "tx.ddl_rollback": {
+  "sql": "ROLLBACK",
+  "status": "ok",
+  "result": null
+ },
+ "tx.ddl_exists": {
+  "sql": "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'Ddl'",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "tx.fail_in_tx_start": {
+  "sql": "START TRANSACTION",
+  "status": "ok",
+  "result": null
+ },
+ "tx.fail_in_tx": {
+  "sql": "INSERT INTO MborobakProbe.Tx (id, q) SELECT id, 10 / (id - 3) FROM MborobakProbe.Src ORDER BY id",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "tx.fail_in_tx_rollback": {
+  "sql": "ROLLBACK",
+  "status": "ok",
+  "result": null
+ },
+ "tx.fail_in_tx_left": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Tx",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "lost.setup": {
+  "sql": "CREATE TABLE MborobakProbe.Old (id INT, s VARCHAR(10))",
+  "status": "ok",
+  "result": null
+ },
+ "lost.fill": {
+  "sql": "INSERT INTO MborobakProbe.Old (id, s) SELECT id, 'old' FROM MborobakProbe.Src",
+  "status": "ok",
+  "result": null
+ },
+ "lost.start": {
+  "sql": "START TRANSACTION",
+  "status": "ok",
+  "result": null
+ },
+ "lost.drop": {
+  "sql": "DROP TABLE MborobakProbe.Old",
+  "status": "ok",
+  "result": null
+ },
+ "lost.recreate": {
+  "sql": "CREATE TABLE MborobakProbe.Old (id INT, q DOUBLE)",
+  "status": "ok",
+  "result": null
+ },
+ "lost.fail": {
+  "sql": "INSERT INTO MborobakProbe.Old (id, q) SELECT id, 1 / (id - 3) FROM MborobakProbe.Src",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "lost.rollback": {
+  "sql": "ROLLBACK",
+  "status": "ok",
+  "result": null
+ },
+ "lost.columns_back": {
+  "sql": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'Old' ORDER BY ORDINAL_POSITION",
+  "status": "ok",
+  "result": [
+   [
+    "id"
+   ],
+   [
+    "s"
+   ]
+  ]
+ },
+ "lost.rows_back": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Old",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "lost.no_failure_start": {
+  "sql": "START TRANSACTION",
+  "status": "ok",
+  "result": null
+ },
+ "lost.no_failure_refill": {
+  "sql": "INSERT INTO MborobakProbe.Old (id, s) SELECT id, 'old' FROM MborobakProbe.Src",
+  "status": "ok",
+  "result": null
+ },
+ "lost.no_failure_commit": {
+  "sql": "COMMIT",
+  "status": "ok",
+  "result": null
+ },
+ "lost.no_failure_tx": {
+  "sql": "START TRANSACTION",
+  "status": "ok",
+  "result": null
+ },
+ "lost.no_failure_drop": {
+  "sql": "DROP TABLE MborobakProbe.Old",
+  "status": "ok",
+  "result": null
+ },
+ "lost.no_failure_recreate": {
+  "sql": "CREATE TABLE MborobakProbe.Old (id INT, q DOUBLE)",
+  "status": "ok",
+  "result": null
+ },
+ "lost.no_failure_rollback": {
+  "sql": "ROLLBACK",
+  "status": "ok",
+  "result": null
+ },
+ "lost.no_failure_rows_back": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Old",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ]
+  ]
+ },
+ "staged.start": {
+  "sql": "START TRANSACTION",
+  "status": "ok",
+  "result": null
+ },
+ "staged.create": {
+  "sql": "CREATE TABLE MborobakProbe.Old2 (id INT, q DOUBLE)",
+  "status": "ok",
+  "result": null
+ },
+ "staged.fail": {
+  "sql": "INSERT INTO MborobakProbe.Old2 (id, q) SELECT id, 1 / (id - 3) FROM MborobakProbe.Src",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-400>:<Fatal error occurred>]"
+ },
+ "staged.rollback": {
+  "sql": "ROLLBACK",
+  "status": "ok",
+  "result": null
+ },
+ "staged.rows_kept": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Old",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ]
+  ]
+ },
+ "staged.stage_gone": {
+  "sql": "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'Old2'",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "staged.swap_start": {
+  "sql": "START TRANSACTION",
+  "status": "ok",
+  "result": null
+ },
+ "staged.swap_create": {
+  "sql": "CREATE TABLE MborobakProbe.Old2 (id INT, q DOUBLE)",
+  "status": "ok",
+  "result": null
+ },
+ "staged.swap_insert": {
+  "sql": "INSERT INTO MborobakProbe.Old2 (id, q) SELECT id, 1 FROM MborobakProbe.Src",
+  "status": "ok",
+  "result": null
+ },
+ "staged.swap_drop": {
+  "sql": "DROP TABLE MborobakProbe.Old",
+  "status": "ok",
+  "result": null
+ },
+ "staged.swap_rename": {
+  "sql": "ALTER TABLE MborobakProbe.Old2 RENAME Old",
+  "status": "ok",
+  "result": null
+ },
+ "staged.swap_commit": {
+  "sql": "COMMIT",
+  "status": "ok",
+  "result": null
+ },
+ "staged.swap_columns": {
+  "sql": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'Old' ORDER BY ORDINAL_POSITION",
+  "status": "ok",
+  "result": [
+   [
+    "id"
+   ],
+   [
+    "q"
+   ]
+  ]
+ },
+ "staged.swap_rows": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Old",
+  "status": "ok",
+  "result": [
+   [
+    5
+   ]
+  ]
+ },
+ "rename": {
+  "sql": "ALTER TABLE MborobakProbe.Stage RENAME Renamed",
+  "status": "ok",
+  "result": null
+ },
+ "rename.read": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Renamed",
+  "status": "ok",
+  "result": [
+   [
+    24
+   ]
+  ]
+ },
+ "rename.old_gone": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.Stage",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-30>:<Table or view not found>]"
+ },
+ "rename.onto_existing": {
+  "sql": "ALTER TABLE MborobakProbe.Renamed RENAME Tx",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-201>:<Table or view name not unique>]"
+ },
+ "rename.catalog": {
+  "sql": "SELECT TABLE_NAME, CLASSNAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME IN ('Renamed', 'Stage')",
+  "status": "ok",
+  "result": [
+   [
+    "Renamed",
+    "MborobakProbe.Stage"
+   ]
+  ]
+ },
+ "rename.insert_after": {
+  "sql": "INSERT INTO MborobakProbe.Renamed (id, s) VALUES (1, 'a')",
+  "status": "ok",
+  "result": null
+ },
+ "rename.new_schema": {
+  "sql": "ALTER TABLE MborobakProbe.Renamed RENAME MborobakProbe2.Renamed",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-1>:<Invalid SQL statement>]"
+ },
+ "exists.lower": {
+  "sql": "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_SCHEMA) = UPPER(?) AND UPPER(TABLE_NAME) = UPPER(?)  -- params=['mborobakprobe', 'renamed']",
+  "status": "ok",
+  "result": [
+   [
+    "MborobakProbe",
+    "Renamed"
+   ]
+  ]
+ },
+ "create.existing": {
+  "sql": "CREATE TABLE MborobakProbe.Renamed (id INT)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-201>:<Table or view name not unique>]"
+ },
+ "create.case_variant": {
+  "sql": "CREATE TABLE MborobakProbe.RENAMED (id INT)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-201>:<Table or view name not unique>]"
+ },
+ "create.new_schema": {
+  "sql": "CREATE TABLE MborobakProbe3.Fresh (id INT)",
+  "status": "ok",
+  "result": null
+ },
+ "create.new_schema_drop": {
+  "sql": "DROP TABLE MborobakProbe3.Fresh",
+  "status": "ok",
+  "result": null
+ },
+ "create.default_schema": {
+  "sql": "CREATE TABLE MborobakProbeDefault (id INT)",
+  "status": "ok",
+  "result": null
+ },
+ "create.default_schema_where": {
+  "sql": "SELECT TABLE_SCHEMA FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'MborobakProbeDefault'",
+  "status": "ok",
+  "result": [
+   [
+    "SQLUser"
+   ]
+  ]
+ },
+ "create.default_schema_drop": {
+  "sql": "DROP TABLE MborobakProbeDefault",
+  "status": "ok",
+  "result": null
+ },
+ "create.as_select": {
+  "sql": "CREATE TABLE MborobakProbe.W6 AS SELECT id, s, d, n, dt, ts FROM MborobakProbe.Src",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-201>:<Table or view name not unique>]"
+ },
+ "create.as_select_catalog": {
+  "sql": "SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'MborobakProbe' AND TABLE_NAME = 'W6' ORDER BY ORDINAL_POSITION",
+  "status": "ok",
+  "result": [
+   [
+    "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "integer",
+    null,
+    10,
+    0
+   ]
+  ]
+ },
+ "create.as_select_count": {
+  "sql": "SELECT COUNT(*) FROM MborobakProbe.W6",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "drop.missing": {
+  "sql": "DROP TABLE MborobakProbe.NoSuchTable",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-30>:<Table or view not found>]"
+ },
+ "drop.if_exists": {
+  "sql": "DROP TABLE IF EXISTS MborobakProbe.NoSuchTable",
+  "status": "ok",
+  "result": null
+ }
+}

@@ -1,6 +1,6 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.8 · 2026-11-20
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.9 · 2026-11-20
 
 Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
@@ -476,6 +476,37 @@ Each plan node either **merges** into the current block or **wraps** it: the cur
 
 `SqlStatement.fingerprint` is a hash of the optimized plan with literal values removed. The session caches `fingerprint → SQL text`, so running the same pipeline shape again with different values skips analysis and generation (scope §7). Parameter values are bound per execution.
 
+### 9.7 Writing tables (release 0.2.x)
+
+`df.write.saveAsTable(name, mode)` and `df.write.insertInto(name, overwrite)` (API contract §4.7) compile the DataFrame to one `SELECT` and wrap it in DDL and `INSERT … SELECT`, so the rows never leave IRIS (`src/mborobak/writer.py`). Every write is one transaction: `START TRANSACTION`, the statements, `COMMIT`, and `ROLLBACK` on any error. IRIS rolls back `CREATE TABLE`, `DROP TABLE` and `ALTER TABLE … RENAME` too (probe 2026-11-20, §12.6), so a failed write leaves the database as it was.
+
+| Mode | Table missing | Table exists |
+|------|---------------|--------------|
+| `errorifexists` (default, also `error`) | Create | `AnalysisError`, nothing runs |
+| `ignore` | Create | Nothing runs |
+| `append` | Create | `INSERT … SELECT`, columns matched by name |
+| `overwrite` | Create | Staging table, then swap (below) |
+| `insertInto(name)` | `TableNotFoundError` | `INSERT … SELECT`, columns matched by position; `overwrite=True` runs `DELETE FROM` first |
+
+**Create:** `CREATE TABLE "schema"."name" (…)` with one column per output attribute, then `INSERT INTO "schema"."name" (cols) <SELECT>`. Column types read back as the DataFrame's types:
+
+| Type | IRIS column |
+|------|-------------|
+| `int`, `bigint`, `double` | `INTEGER`, `BIGINT`, `DOUBLE` |
+| `decimal(p,s)` | `NUMERIC(p,s)`; IRIS keeps at most 19 digits before the point, so `p − s > 19` reads back as `decimal(19+s, s)` (matrix WRITE-07) |
+| `string` | `VARCHAR(n) COLLATE EXACT`, `n` from `mborobak.write.stringLength` (default 3641144, IRIS's maximum; `VARCHAR` without a length holds one character). `EXACT` makes later comparisons, grouping and sorting follow Spark without the `%EXACT` rewrite (§7.1). With `stringSemantics="iris"` the collation clause is left out |
+| `boolean`, `date`, `timestamp_ntz` | `BIT`, `DATE`, `TIMESTAMP` (keeps microseconds; `TIMESTAMP(6)` is a fatal error) |
+
+Columns are nullable, as in tables Spark creates. Before anything runs, the writer rejects names IRIS can't hold (`.`, `,` or `^`, which default names such as `date_add(d, 1)` contain; empty names) and names that differ only in case (IRIS rejects them with -306): `AnalysisError`, asking for `alias()`.
+
+**Overwrite** never drops the old table before the new rows exist: `CREATE TABLE` a staging table `<name>_mborobak_<8 hex digits>` in the same schema, `INSERT` into it, `DROP TABLE` the old table, `ALTER TABLE <staging> RENAME <name>`. The obvious `DROP`, `CREATE`, `INSERT` loses data: when that `INSERT` fails (a division by zero, -400; a NOT NULL violation, -108), `ROLLBACK` brings back the old table's columns but **not its rows**, apparently because the new table reuses the old one's storage (probe 2026-11-20). With the staging table the old rows survive any failure, and the DataFrame may read the table it replaces, as Delta tables allow. IRIS keeps the staging table's class name after the rename (`Schema.Namemborobak1a2b3c4d`); only ObjectScript code sees it.
+
+**Append and `insertInto`** read the target's columns afresh (the catalog entry is refreshed first) and add a projection: each target column takes the matching source column, cast when the types differ. Spark's ANSI store assignment decides what may be cast: numbers into numbers, anything into strings, dates and timestamps into each other; anything else (`string` into `int`, `boolean` into a number) is an `AnalysisError` naming both types. Overflow fails when the row is written: the cast's checks (§7.7), or IRIS's own field validation (-104), which the error mapping reports as "a value does not fit its column". Matching by name is case-insensitive; a column count that differs, a missing name or two source columns with the same name are `AnalysisError`s. Target columns of types Mborobak can't read raise `UnsupportedTypeError`. `insertInto(…, overwrite=True)` on a table the DataFrame reads is an `AnalysisError`, since `DELETE` would empty its own input.
+
+**`INSERT … SELECT` forms** (probe 2026-11-20): `ORDER BY`, `TOP`, `UNION ALL`, windows, `GROUP BY` and parameters work after `INSERT`; `LIMIT` and a parenthesized `SELECT` don't, and the compiler emits neither. A `WITH` clause must come **before** `INSERT INTO` (`INSERT INTO t WITH …` is invalid SQL), so `SqlStatement.cte` keeps it apart and the writer puts it in front. The writer always compiles a `Project` over the plan, so a lone `sql()` source is wrapped like any other and its `WITH` comes out separately. `INSERT INTO t SELECT … FROM t` appends a snapshot (no repeated rows), and a failed `INSERT … SELECT` inserts nothing even outside a transaction.
+
+**Existence** is checked in `INFORMATION_SCHEMA.TABLES`, case-insensitively, as `table()` does; a `VIEW` there is an `AnalysisError` for `append`, `overwrite` and `insertInto`. After a write, the catalog entry of the target is refreshed, so `session.table(name)` sees the new columns. `session.lastExecution` records the action, all statements, the `INSERT`'s parameters and its row count.
+
 ## 10. `explain()`
 
 `df.explain()` prints, without running anything:
@@ -696,6 +727,32 @@ Script [`probes/date_probe.py`](../probes/date_probe.py), raw output [`probes/re
 | `TO_CHAR(ts, …)`, `TO_CHAR(d, 'HH24:MI')` | Fatal error -400 |
 | `DAYNAME(d)`, `MONTHNAME(d)` | `'Saturday'`, `'January'` |
 | `CURRENT_TIMESTAMP`, `CURRENT_TIMESTAMP(6)` | No fraction; microseconds |
+
+### 12.6 Probe 2026-11-20: writing tables
+
+Script [`probes/write_probe.py`](../probes/write_probe.py), raw output [`probes/results-2026-11-20-write-iris-2026.2.json`](../probes/results-2026-11-20-write-iris-2026.2.json), IRIS 2026.2.
+
+| Check | Result |
+|-------|--------|
+| `VARCHAR` without a length | `MAXLEN` 1: any longer value fails with -104 |
+| `VARCHAR(3641144)`; `VARCHAR(3641145)` | Holds 5000-character values; also accepted |
+| `COLLATE EXACT`, `COLLATE %EXACT`, `%EXACT` | All three give `COLLATION` `EXACT`: `'apple'` ≠ `'Apple'`, `'  x '` ≠ `'  x'` |
+| `TIMESTAMP(6)` | Fatal error -400; plain `TIMESTAMP` keeps microseconds |
+| `NUMERIC(p,s)` for `p − s > 19` | Catalog precision `19 + s` (`NUMERIC(38,10)` → 29); values of 20 integer digits fail with -104 |
+| Round trip by `INSERT … SELECT` | NaN, ±∞ and `-0.0` in `DOUBLE`; `1.005` into `NUMERIC(10,2)` rounds to 1.01; 1 / 0 from `CASE` into `BIT` |
+| Out-of-range values: 2^32 into `INTEGER`, 20 digits into `NUMERIC`, 2 or text into `BIT`/`INTEGER` | -104; text into `DATE`: `<ARGUMENT ERROR>`; `8.7` into `INTEGER`: **8**, silently |
+| Column names `(i + 1)`, `count(1)`, `1st`, `with space`, `%pct`, `x"q`, `a;b`, `a=b`, `ç`, 129 characters | Accepted and kept as written |
+| Column names with `.` or `,`; empty; `a` and `A` | -1 invalid SQL; -1; -306 |
+| `INSERT … SELECT … ORDER BY`, `TOP`, `UNION ALL`, window, `GROUP BY … HAVING`, parameters | Work |
+| `INSERT … SELECT … LIMIT 2`; `INSERT INTO t (SELECT …)`; `INSERT INTO t WITH q AS …` | -25; -1; -1. `WITH q AS (…) INSERT INTO t SELECT …` works |
+| `INSERT INTO t SELECT … FROM t` with 1000 rows | 2000 rows: a snapshot |
+| Failing `INSERT … SELECT` (division by zero, NULL into NOT NULL), no transaction | No rows inserted |
+| `ROLLBACK` after `INSERT`, `CREATE TABLE`, `DROP TABLE` with recreate, `ALTER TABLE … RENAME` | All undone |
+| `DROP TABLE t`, `CREATE TABLE t`, failing `INSERT INTO t`, `ROLLBACK` | Old columns back, **old rows gone** (also after -108) |
+| Same with a staging table: `CREATE s`, failing `INSERT INTO s`, `ROLLBACK`; or `CREATE s`, `INSERT`, `DROP t`, `RENAME s t`, `COMMIT` | Old rows kept; staging table gone. Swap: new columns and rows |
+| `DELETE FROM t`, failing `INSERT`, `ROLLBACK` | Rows back |
+| `ALTER TABLE s RENAME t` onto an existing `t`; to another schema | -201; -1 |
+| `CREATE TABLE` of an existing name in other case; in a new schema; unqualified | -201; creates the schema; `SQLUser` |
 
 ## 13. Open questions
 

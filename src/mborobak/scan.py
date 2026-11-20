@@ -111,7 +111,7 @@ _OUT_OF_SCOPE_SESSION = {
 _SESSION_METHODS = {"table", "sql", "createDataFrame", "range", "stop"}
 
 _WINDOW_PLANNED = "0.2"
-_PLANNED_WRITER = {"saveAsTable": "0.2.x", "mode": "0.2.x"}
+_WRITER_FILES = {"save", "parquet", "csv", "json", "orc", "text", "jdbc", "xml"}
 _JOIN_LATER = {"semi", "leftsemi", "left_semi", "anti", "leftanti", "left_anti"}
 
 _PLATFORM = {
@@ -146,6 +146,7 @@ def _supported() -> dict[str, set[str]]:
     from .session import _CatalogAPI
     from .sql import functions as F
     from .sql.window import Window, WindowSpec
+    from .writer import DataFrameWriter
 
     def public(cls) -> set[str]:
         return {n for n in dir(cls) if not n.startswith("_")}
@@ -157,6 +158,7 @@ def _supported() -> dict[str, set[str]]:
         METHOD: public(DataFrame) | public(Column) | public(GroupedData),
         SESSION: public(MborobakSession) | {"catalog." + n for n in public(_CatalogAPI)},
         WINDOW: public(Window) | public(WindowSpec),
+        WRITER: public(DataFrameWriter),
     }
 
 
@@ -311,13 +313,11 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         method = name.split(".", 1)[1] if "." in name else name
         if name.startswith("writeStream"):
             return OUT_OF_SCOPE, None, "streaming"
-        if method in _PLANNED_WRITER:
-            return PLANNED, _PLANNED_WRITER[method], "writing tables inside IRIS"
-        if method in ("insertInto",):
-            return NOT_SCHEDULED, None, None
-        if method in ("format", "option", "options", "partitionBy", "bucketBy", "sortBy"):
-            return NOT_SCHEDULED, None, "writer option"
-        return OUT_OF_SCOPE, None, "writes files or external sources"
+        if method in _WRITER_FILES:
+            return OUT_OF_SCOPE, None, "writes files or external sources; saveAsTable writes IRIS tables"
+        if method in supported.get(WRITER, set()):
+            return SUPPORTED, None, None
+        return NOT_SCHEDULED, None, None
     if kind == PLATFORM:
         return _PLATFORM.get(name, (OUT_OF_SCOPE, None, None))
     raise ValueError(kind)

@@ -128,7 +128,7 @@ t.cache(); t.na.drop()
     assert r["spark.createDataFrame"] == (PLANNED, "0.2.x", 1)
     assert r["spark.read"] == (OUT_OF_SCOPE, None, 1)          # format/option/load counted once
     assert r["spark.read.table"][0] == NOT_SCHEDULED
-    assert r["df.write.saveAsTable"] == (PLANNED, "0.2.x", 1)  # mode() is part of it
+    assert r["df.write.saveAsTable"] == (SUPPORTED, None, 1)  # mode() is part of it
     assert r["df.write.parquet"][0] == OUT_OF_SCOPE
     assert r[".filter()"] == (SUPPORTED, None, 1)               # the call before .write still counts
     assert r["spark.catalog.tableExists"][0] == SUPPORTED

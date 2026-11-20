@@ -1,4 +1,4 @@
-SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.12 · 2026-11-20
+SCIENTIFICLOUD · PRODUCT SCOPE · VERSION 1.13 · 2026-11-20
 
 # Mborobak
 
@@ -23,6 +23,7 @@ Scope document covering functionality, architecture, implementation and validati
 | 1.10    | 2026-11-19 | Release 0.3 gains a concrete item: columnar (Arrow-style) result transfer, after the benchmark showed per-row conversion dominates large results (§13). |
 | 1.11    | 2026-11-19 | Release 0.2 reordered for proofs of concept with Databricks users, following the [POC readiness plan](poc-readiness-plan.md): notebook scanner, column functions, window functions, SQL-string expressions first (§13). |
 | 1.12    | 2026-11-20 | Release 0.2.0 shipped with items 1 and 2 of §13 (tier 1 of the POC readiness plan); item 3 becomes the 0.2.x releases. Exit criterion met: 91% of in-scope calls on public Databricks notebooks. |
+| 1.13    | 2026-11-20 | The table write API (P1) is built for 0.2.x: `saveAsTable` and `insertInto`, inside IRIS and in one transaction (§13). |
 
 ---
 
@@ -134,7 +135,7 @@ P0 = required for the MVP; P1 = planned next; P2 = research or future version.
 | Data | `createDataFrame()` | P1 |
 | Analytics | Window functions and `row_number()`, `rank()`, `lag()`, `lead()` | P1 |
 | Analytics | Date and string functions (documented subset) | P1 |
-| Writing | Table write API | P1 |
+| Writing | Table write API (`saveAsTable`, `insertInto`; release 0.2.x) | P1 |
 | Execution | Python UDFs and UDAFs | P2 |
 | Execution | Vectorized execution | P2 |
 | Storage | Parquet/MinIO integration | P2 |
@@ -337,7 +338,7 @@ There is also no generic multi-database layer in the MVP. The architecture must 
 
 1. A notebook compatibility scanner, to measure a client's code against what Mborobak supports.
 2. Null, string and math functions; window functions; date and time functions; SQL-string expressions (`F.expr`, `selectExpr`, `filter("…")`); `dropDuplicates`.
-3. Then `createDataFrame`, table writes, `unionByName`, semi/anti joins, named `sql()` parameters and planner improvements.
+3. Then table writes (done: `saveAsTable`, `insertInto`), `createDataFrame`, `unionByName`, semi/anti joins, named `sql()` parameters and planner improvements.
 
 Exit criterion: at least 80% of the calls in representative Databricks notebooks supported, each new function with a PySpark comparison row. Met by 0.2.0: 91% of in-scope calls on the public notebook set, 93% on the sample notebook.
 

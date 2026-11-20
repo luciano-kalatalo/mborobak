@@ -39,12 +39,13 @@ from .sql.types import (
 
 if TYPE_CHECKING:
     from .session import MborobakSession
+    from .writer import DataFrameWriter
 
 __all__ = ["DataFrame", "GroupedData"]
 
 _LATER = {
     "unionByName": "P1",
-    "toLocalIterator": "P1", "write": "P1", "createOrReplaceTempView": "P1",
+    "toLocalIterator": "P1", "createOrReplaceTempView": "P1",
 }
 
 _JOIN_TYPES = {
@@ -471,6 +472,14 @@ class DataFrame:
         return self._with(P.Union(inputs, tuple(attrs)))
 
     unionAll = union
+
+    # ---------------------------------------------------------------- writing
+    @property
+    def write(self) -> "DataFrameWriter":
+        """Writes the DataFrame to an IRIS table: ``df.write.mode("overwrite").saveAsTable("Sales.Daily")``."""
+        from .writer import DataFrameWriter
+
+        return DataFrameWriter(self)
 
     # ---------------------------------------------------------------- schema
     @property

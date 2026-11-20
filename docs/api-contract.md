@@ -1,6 +1,6 @@
 # API Contract
 
-Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.5 · 2026-11-20
+Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.6 · 2026-11-20
 
 Defines the public Python API of the P0 release: names, signatures, accepted arguments, return values, errors, and the number of queries each call may run. Implements [mborobak-scope.md](mborobak-scope.md) §5 and §7. How a plan becomes SQL is in the [compiler specification](compiler-spec.md) (control document 1); how results compare to PySpark is in the [compatibility matrix](compatibility-matrix.md) (control document 3).
 
@@ -90,6 +90,7 @@ Mborobak settings can be changed at any time with `session.conf.set()`. They app
 | `mborobak.sql.maxParameters` | `int`, 1–900 | `900` | Parameter count that raises `PlanTooLargeError` (compiler spec §9.5) |
 | `mborobak.sql.cacheSize` | `int` ≥ 0 | `256` | Compiled-SQL cache entries; `0` turns the cache off |
 | `mborobak.show.truncate` | `int` ≥ 0 | `20` | Default cell width of `show()` |
+| `mborobak.write.stringLength` | `int`, 1–3641144 | `3641144` | `VARCHAR` length of string columns in tables that `df.write` creates (§4.7, compiler spec §9.7) |
 
 Unknown `mborobak.*` keys raise `UnsupportedOperationError` listing the valid keys.
 
@@ -200,10 +201,26 @@ These may run a schema lookup but never a data query.
 
 Calling these raises `UnsupportedOperationError`, which names the release that adds them, instead of `AttributeError`:
 
-- P1: `unionByName`, `toLocalIterator`, semi and anti joins, `createDataFrame`, `write`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6.)
+- P1: `unionByName`, `toLocalIterator`, semi and anti joins, `createDataFrame`. (Null, string, math, date and window functions, `fillna`, `dropna` and `dropDuplicates` arrived in 0.2, §6.4, §6.6; `write` in 0.2.x, §4.7.)
 - Not planned: `cache`, `persist`, `unpersist`, `checkpoint`, `repartition`, `coalesce`, `rdd`, `foreach`, `mapInPandas`, `toArrow`, streaming, UDFs (P2).
 
 `cache()` and `persist()` raise rather than doing nothing, because a silent no-op would hide the fact that every action re-runs the query.
+
+### 4.7 Writing tables
+
+`df.write` returns a `DataFrameWriter` (also importable from `mborobak.sql`). Writing runs inside IRIS: the DataFrame's query feeds `INSERT … SELECT`, and the rows never travel to Python. Each write is one transaction, so a failed write changes nothing (compiler spec §9.7).
+
+| Member | Returns | Notes |
+|--------|---------|-------|
+| `mode(saveMode)` | the writer | `"errorifexists"` (default), `"error"`, `"append"`, `"overwrite"`, `"ignore"`, case-insensitive; anything else raises `ValueError` |
+| `saveAsTable(name, format=None, mode=None, partitionBy=None, **options)` | `None` | `name` is `"schema.table"` or `"table"` (schema `SQLUser`), as for `table()`. A missing table is created with the DataFrame's columns and types. When it exists: `errorifexists` raises `AnalysisError`, `ignore` does nothing, `append` inserts with columns matched by name (case-insensitive) and cast by Spark's ANSI store-assignment rules, `overwrite` replaces the table, its columns included, and may read the table it replaces |
+| `insertInto(tableName, overwrite=None)` | `None` | The table must exist (`TableNotFoundError`). Columns are matched by position. `overwrite=True`, or `mode("overwrite")`, deletes the rows first |
+| `format(source)`, `option(key, value)`, `options(**kw)`, `partitionBy(*cols)`, `bucketBy(…)`, `sortBy(…)` | the writer | Describe files in Spark and have no effect, so `format("delta")` notebooks run unchanged. Exceptions: `option("mergeSchema", "true")` and a `path` option raise `UnsupportedOperationError` |
+| `save()`, `parquet()`, `csv()`, `json()`, `orc()`, `text()`, `jdbc()` | — | `UnsupportedOperationError`: they write files or other databases |
+
+Errors before anything runs: `AnalysisError` for an existing table under `errorifexists`, a view as target, a column name with `.`, `,` or `^` or names differing only in case (IRIS can't hold either), a column count or name that doesn't match the table, or a type the table column can't take (`string` into `int`). Errors while writing are the action errors of §9 (`MborobakArithmeticError`, `MborobakCastError`), plus `MborobakExecutionError` when a value doesn't fit the column (a string longer than `mborobak.write.stringLength`, a NULL into a NOT NULL column of an existing table).
+
+`session.lastExecution` records `action="saveAsTable"` or `"insertInto"`, the statements, the `INSERT`'s parameters and `rows`, the number of rows written.
 
 ## 5. Results
 
@@ -418,6 +435,7 @@ Format defined in compiler spec §10. Output is deterministic for a given plan a
 | `schema`, `columns`, `dtypes`, `printSchema()`, `explain()`, `toSQL()` | 0 if all tables are cached | 0 |
 | Any action (§4.4) | 0 if cached | **exactly 1** |
 | `catalog.refresh()` | 0 | 0 |
+| `write.saveAsTable()`, `write.insertInto()` | 1 existence check, plus 1 column lookup for `append` and `insertInto` | 0 to 4 statements, in one transaction: `CREATE TABLE`, `INSERT`, `DROP TABLE`, `ALTER TABLE` or `DELETE` (compiler spec §9.7) |
 
 Integration tests assert these counts using `ExecutionMetrics` and a counting connection wrapper.
 

@@ -72,6 +72,13 @@ def map_error(exc: Exception, sql: str, operation: str | None, candidates: list[
     if _BAD_DATETIME.search(text):  # TO_DATE / TO_TIMESTAMP of an impossible date or time (§7.7)
         return MborobakCastError("invalid input for cast to a date or timestamp" + hint, operation=operation,
                                  **details)
+    if sqlcode == -104:  # INSERT: field validation (string longer than VARCHAR(n), digits beyond NUMERIC(p,s))
+        return MborobakExecutionError("a value does not fit its column in the target table (a string longer than "
+                                      "the column's length, or a number beyond its precision)" + hint,
+                                      operation=operation, **details)
+    if sqlcode == -108:
+        return MborobakExecutionError("NULL value for a NOT NULL column of the target table" + hint,
+                                      operation=operation, **details)
     if iris_code == "<DIVIDE>":
         return MborobakArithmeticError("division by zero" + hint, operation=operation, **details)
     if iris_code == "<ILLEGAL VALUE>":  # DOUBLE division by zero (and LOG/SQRT domain errors)
@@ -268,6 +275,19 @@ class Executor:
             description = [tuple(d) for d in (cur.description or [])]
             cur.fetchall()
             return description
+        finally:
+            cur.close()
+
+    def execute(self, sql: str, params: list, operation: str | None, candidates: list[str] = ()) -> int:
+        """Run a statement that returns no rows (DDL, INSERT); returns the driver's row count."""
+        cur = self.connection.cursor()
+        try:
+            try:
+                cur.execute(sql, params)
+            except Exception as exc:  # noqa: BLE001 - mapped to Mborobak errors
+                raise map_error(exc, sql, operation, list(candidates)) from exc
+            self.counter.data_queries += 1
+            return cur.rowcount
         finally:
             cur.close()
 

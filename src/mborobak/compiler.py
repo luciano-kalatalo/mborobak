@@ -51,6 +51,12 @@ class SqlStatement:
     schema: StructType
     translations: list[str]
     fingerprint: str
+    cte: str = ""  # the WITH clause at the front of ``text`` (from sql() sources); INSERT goes after it
+
+    @property
+    def body(self) -> str:
+        """``text`` without its WITH clause."""
+        return self.text[len(self.cte) + 1:] if self.cte else self.text
 
 
 # --------------------------------------------------------------------------- blocks
@@ -513,7 +519,8 @@ class Compiler:
                 f"the query needs {len(renderer.params)} parameters; the limit is "
                 f"{self.options.max_parameters} (IRIS fails near 999). Shorten long isin() lists.")
         fingerprint = hashlib.sha256(text.encode()).hexdigest()[:16]
-        return SqlStatement(text, renderer.params, schema, list(self.translations), fingerprint)
+        return SqlStatement(text, renderer.params, schema, list(self.translations), fingerprint,
+                            self.ctes[0][0] if self.ctes else "")
 
 
 # --------------------------------------------------------------------------- constant casts

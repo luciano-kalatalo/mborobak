@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Writing tables: `df.write.saveAsTable(name)` with save modes `errorifexists` (default), `append` (columns matched by name, cast by Spark's ANSI store-assignment rules), `overwrite` (new columns; may read the table it replaces) and `ignore`, and `df.write.insertInto(name, overwrite)`. The DataFrame's query runs as `CREATE TABLE` plus `INSERT … SELECT` in one transaction, so the rows never leave IRIS and a failed write changes nothing. String columns are created with `EXACT` collation, so they compare as in Spark; the new setting `mborobak.write.stringLength` sets their length. `format()`, `partitionBy()` and options are accepted and have no effect; file writers (`save`, `parquet`, `csv`) raise `UnsupportedOperationError` (compiler spec §9.7, API contract §4.7, compatibility matrix §2.16).
+- New known difference: decimals written to IRIS keep at most 19 digits before the point, so `decimal(30,2)` reads back as `decimal(21,2)` (matrix WRITE-07).
+- `mborobak-scan` reports `saveAsTable` and `insertInto` as supported.
+
 ## 0.2.0 (2026-11-20)
 
 Analytical functions, for proofs of concept with Databricks users (tier 1 of the [POC readiness plan](docs/poc-readiness-plan.md)). On a set of public Databricks notebooks, 91% of the PySpark calls that matter in a POC are now supported. The rest are platform calls such as `display()` and file reads.

@@ -57,6 +57,7 @@ IRIS is fast at SQL, and many data teams think in DataFrames. Mborobak gives the
 | SQL strings | `F.expr("…")`, `selectExpr("…")`, `filter("…")`/`where("…")` with Spark SQL expressions, functions and windows |
 | Windows | `Window.partitionBy().orderBy().rowsBetween()/rangeBetween()`; `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first`, `last`, and aggregates `.over(window)`; filtering on window results (top-N per group); `dropDuplicates` |
 | Actions | `collect`, `show`, `count`, `take`, `first`, `head`, `toPandas` |
+| Writing tables | `df.write.saveAsTable(name)` with modes `errorifexists`, `append`, `overwrite`, `ignore`; `insertInto`. Runs as `CREATE TABLE` plus `INSERT … SELECT` in one transaction, so the rows never leave IRIS |
 | Inspection | `schema`, `columns`, `dtypes`, `printSchema`, `explain()`, `toSQL()`, per-action metrics in `session.lastExecution` |
 
 Transformations never run queries. Each action runs exactly one data query; table schemas are looked up once and cached.
@@ -201,7 +202,7 @@ They rest on measurements: an [IRIS behavior study](docs/iris-behavior-study.md)
 Version 0.2. Release 0.1 was built for the InterSystems Open Exchange contest and covered the P0 scope in [docs/mborobak-scope.md](docs/mborobak-scope.md), where the full roadmap lives (§13). Release 0.2 adds what PySpark users on Databricks reach for first.
 
 - **0.2, Analytical functions (released):** for proofs of concept with Databricks users ([plan](docs/poc-readiness-plan.md)): the notebook compatibility scanner; null, string, math, date and time functions; `fillna`/`dropna`; window functions and `dropDuplicates`; `F.expr`/`selectExpr`/`filter("…")`.
-- **0.2.x, Pipelines:** `createDataFrame`, writing tables (`saveAsTable`), `unionByName`, semi and anti joins, named `sql()` parameters, as POCs ask for them.
+- **0.2.x, Pipelines:** writing tables (`saveAsTable`, `insertInto`, done); `createDataFrame`, `unionByName`, semi and anti joins, named `sql()` parameters, as POCs ask for them.
 - **0.3, Advanced execution:** regular expressions (IRIS SQL has none), **columnar (Arrow-style) result transfer**, so large results reach pandas as whole columns instead of row by row (today about 1.7 s per million rows against 0.85 s for the raw driver); research on server-side UDFs, vectorized execution and parallelism.
 - **1.0, Production readiness:** stable API, documented compatibility, robustness testing, observability, security, and CI on every supported Python version.
 

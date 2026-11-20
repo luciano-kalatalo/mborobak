@@ -52,7 +52,7 @@ Script [`probes/function_probe.py`](../probes/function_probe.py), raw output [`p
 ### Tier 2: release 0.2.x, round out pipelines
 
 - **`createDataFrame`** from Python data or pandas, as a temporary table in IRIS. Needs write permission; size medium.
-- **Writing tables:** `df.write.saveAsTable(name, mode=...)` via `CREATE TABLE` plus `INSERT … SELECT`, so the data never leaves IRIS. Size medium.
+- ~~**Writing tables:** `df.write.saveAsTable(name, mode=...)` via `CREATE TABLE` plus `INSERT … SELECT`, so the data never leaves IRIS. Size medium.~~ Done, with `insertInto` (compiler spec §9.7, matrix §2.16). Each write is one transaction; building it found that IRIS loses a table's rows when a `DROP`, `CREATE` and failing `INSERT` of the same name are rolled back, so `overwrite` goes through a staging table.
 - **`unionByName`**, **semi and anti joins**, **named `sql()` parameters**. Small each.
 
 ### Tier 3: needs research (release 0.3)
@@ -73,6 +73,7 @@ Reading files and Delta tables (`spark.read`), Databricks-specific APIs (`displa
 4. ~~Date and time functions~~ Done, after a focused IRIS probe (compiler spec §7.12, matrix §2.14). Building them uncovered a fix for 0.1: invalid text cast to a date returned `1840-12-31` (matrix CAST-18).
 5. ~~SQL-string expressions~~ Done (compiler spec §7.13, matrix §2.15); `dropDuplicates` came with windows. This completes tier 1. Building the parser uncovered a fix for 0.1: a fractional constant beside an integer column was rounded (`7 + 1.5` gave 9, matrix NUM-14).
 6. ~~Release 0.2~~ Released as 0.2.0 on 2026-11-20. Then tier 2 as POCs ask for it, in 0.2.x releases.
+7. ~~Writing tables~~ Done (tier 2, for the next 0.2.x release): `saveAsTable` with every save mode, and `insertInto`.
 
 ## 5. First scan: public Databricks notebooks (2026-11-19)
 
@@ -101,3 +102,5 @@ After window functions and `dropDuplicates` (step 3), in-scope coverage today is
 After date and time functions (step 4), in-scope coverage today is **90%** on both the dbdemos set and the sample notebook. Of the 0.2 items, only SQL-string expressions remain (step 5); the rest of the dbdemos gap is `saveAsTable` (0.2.x), `%sql` cells and regular expressions (0.3).
 
 With SQL-string expressions (step 5), tier 1 is complete: in-scope coverage today is **91%** on the dbdemos set and **93%** on the sample. Nothing planned for 0.2 is left in either; what remains is tier 2 (`saveAsTable`, 4 calls) and tier 3 (`%sql` cells and regular expressions, 9 calls).
+
+With writing tables (step 7), in-scope coverage today is **93%** on the dbdemos set (80% of all calls) and **94%** on the sample. The dbdemos set now needs only tier 3 (`%sql` cells and regular expressions).

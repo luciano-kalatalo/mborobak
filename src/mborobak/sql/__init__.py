@@ -6,13 +6,14 @@ imported by the core modules themselves.
 
 from importlib import import_module
 
-__all__ = ["MborobakSession", "DataFrame", "Column", "Row", "GroupedData", "Window", "WindowSpec", "functions",
+__all__ = ["MborobakSession", "DataFrame", "Column", "Row", "GroupedData", "DataFrameWriter", "Window", "WindowSpec", "functions",
            "types", "window"]
 
 _LAZY = {
     "MborobakSession": ("mborobak.session", "MborobakSession"),
     "DataFrame": ("mborobak.dataframe", "DataFrame"),
     "GroupedData": ("mborobak.dataframe", "GroupedData"),
+    "DataFrameWriter": ("mborobak.writer", "DataFrameWriter"),
     "Column": ("mborobak.column", "Column"),
     "Row": ("mborobak.row", "Row"),
     "Window": ("mborobak.sql.window", "Window"),
