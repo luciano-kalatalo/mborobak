@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from . import expressions as E
 from . import plan as P
 from . import scalar, windows
-from .analyzer import infer
+from .analyzer import STAT_AGGREGATES, infer
 from .errors import AnalysisError, PlanTooLargeError, UnsupportedOperationError
 from .sql.types import (
     BooleanType,
@@ -224,7 +224,7 @@ class Compiler:
                 dtype, nullable = infer(e.child)
                 attr = E.Attribute(E.new_id(), f"mborobak_h{E.new_id()}", dtype, nullable)
                 pre.append((attr, e.child))
-                return E.Cast(E.AttrRef(attr), e.to)
+                return E.Cast(E.AttrRef(attr), e.to, e.lenient)
             return None
 
         rewritten = [E.transform_down(x, replace) for x in exprs]
@@ -796,6 +796,18 @@ class Renderer:
                 n = s.render(self, e)
                 return f"CASE WHEN {p} THEN 1 WHEN NOT ({n}) THEN 0 END"
             return s.render(self, e)
+        if isinstance(e, E.AggregateCall) and (e.function == "median" or e.function.startswith("percentile")):
+            raise UnsupportedOperationError(f"{e.function.split(':')[0]}() is supported in groupBy().agg() and select(), "
+                                            "not over a window")
+        if isinstance(e, E.AggregateCall) and e.function in STAT_AGGREGATES:
+            child = e.child
+            if not isinstance(infer(child)[0], DoubleType):
+                child = E.Cast(child, DoubleType())  # Spark's result is a double; IRIS keeps NUMERIC otherwise
+            x = lambda: self.value(child)  # noqa: E731 - rendered once per use: parameters in order
+            # Spark gives NaN when a value is NaN; IRIS's STDDEV_SAMP and VAR_POP give 0 (§7.18)
+            nan_seen = f"MAX(CASE WHEN {x()} <> {x()} THEN 1 ELSE 0 END) = 1"
+            return f"CASE WHEN {nan_seen} THEN {self.lit(E.Literal(math.nan, DoubleType()))} " \
+                   f"ELSE {STAT_AGGREGATES[e.function]}({x()}) END"
         if isinstance(e, E.AggregateCall):
             fn = e.function.upper()
             if isinstance(e.child, E.Star):
@@ -1058,7 +1070,12 @@ class Renderer:
                                                isinstance(src, (DoubleType, DecimalType)) and to.is_integral):
             # A constant has no row to make the error trigger depend on, so the guarded forms below don't
             # apply (§7.5). Cast it here with Spark's rules; invalid input fails when the action runs.
-            return self.lit(E.Literal(fold_cast(e.child.value, to), to))
+            try:
+                return self.lit(E.Literal(fold_cast(e.child.value, to), to))
+            except (ValueError, ArithmeticError):
+                if e.lenient:
+                    return f"CAST(NULL AS {sql_type(to)})"
+                raise
         if isinstance(src, StringType) and to.is_numeric:
             # §7.7: validity check. $LISTGET at position -5 raises <RANGE>, only when reached (it
             # depends on the row). <ILLEGAL VALUE> is not used: IRIS raises it for DOUBLE / 0 too.
@@ -1077,6 +1094,8 @@ class Renderer:
             if to.is_integral:
                 text += f" AND TRIM({s()}) %PATTERN '{INTEGER_PATTERN}'"
             text += f" THEN CAST(TRIM({s()}) AS {sql_type(to)})"
+            if e.lenient:  # try_cast: NULL for invalid text
+                return text + " ELSE NULL END"
             text += f" ELSE $LISTGET({s()}, LENGTH({s()}) - LENGTH({s()}) - 5) END"
             return text
         if isinstance(src, (DoubleType, DecimalType)) and to.is_integral:

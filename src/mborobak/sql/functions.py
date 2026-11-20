@@ -6,6 +6,7 @@ from typing import Any
 
 from .. import expressions as E
 from ..column import Column, literal, to_column_expr, to_expr
+from .types import DoubleType, NullType
 
 __all__ = [
     "col",
@@ -628,3 +629,127 @@ def regexp_instr(str: Column | str, regexp: Column | str, idx: int | Column | No
 
 __all__ += ["rlike", "regexp", "regexp_like", "regexp_replace", "regexp_extract", "regexp_count",
             "regexp_substr", "regexp_instr"]
+
+
+# statistics (compiler spec §7.18). stddev and variance use IRIS's STDDEV_SAMP, VAR_POP …; corr, covariances,
+# skewness and kurtosis are formulas over sums of powers, as IRIS has none of them.
+
+def stddev(col: Column | str) -> Column:
+    return _agg("stddev", col)
+
+
+def std(col: Column | str) -> Column:
+    return _agg("std", col)
+
+
+def stddev_samp(col: Column | str) -> Column:
+    return _agg("stddev_samp", col)
+
+
+def stddev_pop(col: Column | str) -> Column:
+    return _agg("stddev_pop", col)
+
+
+def variance(col: Column | str) -> Column:
+    return _agg("variance", col)
+
+
+def var_samp(col: Column | str) -> Column:
+    return _agg("var_samp", col)
+
+
+def var_pop(col: Column | str) -> Column:
+    return _agg("var_pop", col)
+
+
+def _named_stat(expr: Column, name: str) -> Column:
+    return Column(E.Alias(expr._expr, name))
+
+
+def _double(c: Column | str) -> Column:
+    return Column(_col(c)).cast("double")
+
+
+def _null_if_zero(denominator: Column, value: Column) -> Column:
+    """Spark returns NULL where its formula divides by zero (statistical aggregates, ANSI)."""
+    return when(denominator == 0, Column(E.Cast(E.Literal(None, NullType()), DoubleType()))).otherwise(value)
+
+
+def _pair_sums(c1: Column | str, c2: Column | str):
+    from ..naming import expr_name
+
+    x0, y0 = _col(c1), _col(c2)
+    both = Column(x0).isNotNull() & Column(y0).isNotNull()
+    x = when(both, _double(c1))
+    y = when(both, _double(c2))
+    n = count(x).cast("double")
+    return n, sum(x), sum(y), sum(x * y), sum(x * x), sum(y * y), f"{expr_name(x0)}, {expr_name(y0)}"
+
+
+def covar_pop(col1: Column | str, col2: Column | str) -> Column:
+    n, sx, sy, sxy, _, _, names = _pair_sums(col1, col2)
+    return _named_stat(_null_if_zero(n, (sxy - sx * sy / n) / n), f"covar_pop({names})")
+
+
+def covar_samp(col1: Column | str, col2: Column | str) -> Column:
+    n, sx, sy, sxy, _, _, names = _pair_sums(col1, col2)
+    return _named_stat(when(n <= 1, Column(E.Cast(E.Literal(None, NullType()), DoubleType())))
+                       .otherwise((sxy - sx * sy / n) / (n - 1)), f"covar_samp({names})")
+
+
+def corr(col1: Column | str, col2: Column | str) -> Column:
+    n, sx, sy, sxy, sxx, syy, names = _pair_sums(col1, col2)
+    den = (n * sxx - sx * sx) * (n * syy - sy * sy)
+    return _named_stat(_null_if_zero(den, (n * sxy - sx * sy) / sqrt(den)), f"corr({names})")
+
+
+def _moments(c: Column | str):
+    from ..naming import expr_name
+
+    x = _double(c)
+    n = count(x).cast("double")
+    s1, s2, s3, s4 = sum(x), sum(x * x), sum(x * x * x), sum(x * x * x * x)
+    m = s1 / n
+    m2 = s2 - n * m * m                                   # sum of (x - mean)^2
+    m3 = s3 - 3 * m * s2 + 2 * n * m * m * m              # sum of (x - mean)^3
+    m4 = s4 - 4 * m * s3 + 6 * m * m * s2 - 3 * n * m * m * m * m
+    return n, m2, m3, m4, expr_name(_col(c))
+
+
+def skewness(col: Column | str) -> Column:
+    n, m2, m3, _, name = _moments(col)
+    return _named_stat(_null_if_zero(m2, sqrt(n) * m3 / (m2 * sqrt(m2))), f"skewness({name})")
+
+
+def kurtosis(col: Column | str) -> Column:
+    n, m2, _, m4, name = _moments(col)
+    return _named_stat(_null_if_zero(m2, n * m4 / (m2 * m2) - 3), f"kurtosis({name})")
+
+
+def median(col: Column | str) -> Column:
+    """The exact median, interpolated between the two middle values (Spark 3.4)."""
+    return _agg("median", col)
+
+
+def percentile(col: Column | str, percentage: float, frequency: int = 1) -> Column:
+    """The exact percentile, interpolated as Spark's ``percentile`` (not ``percentile_approx``)."""
+    from ..errors import UnsupportedOperationError
+
+    if isinstance(percentage, (list, tuple)):
+        raise UnsupportedOperationError("percentile() with several percentages returns an array, which Mborobak "
+                                        "does not support; call it once per percentage")
+    import decimal
+
+    if isinstance(percentage, Column) and isinstance(percentage._expr, E.Literal):
+        percentage = percentage._expr.value  # SQL text: 0.5 is a decimal literal
+    if isinstance(percentage, decimal.Decimal):
+        percentage = float(percentage)
+    if not isinstance(percentage, (int, float)) or isinstance(percentage, bool) or not 0 <= percentage <= 1:
+        raise ValueError("percentile() takes a percentage between 0 and 1")
+    if frequency != 1:
+        raise UnsupportedOperationError("percentile() with a frequency other than 1 is not supported")
+    return Column(E.AggregateCall(f"percentile:{float(percentage)!r}", to_column_expr(col)))
+
+
+__all__ += ["stddev", "std", "stddev_samp", "stddev_pop", "variance", "var_samp", "var_pop", "covar_pop",
+            "covar_samp", "corr", "skewness", "kurtosis", "median", "percentile"]

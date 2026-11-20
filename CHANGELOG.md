@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Statistics: `stddev`, `std`, `stddev_samp`, `stddev_pop`, `variance`, `var_samp`, `var_pop`, `corr`, `covar_pop`, `covar_samp`, `skewness`, `kurtosis`, and exact `median` and `percentile`, with Spark's results including NaN and single-row groups. IRIS's own `STDDEV_SAMP` and `VAR_POP` are used where they exist; the rest are emulated (compiler spec §7.18, matrix §2.20).
+- `describe()` and `summary()`, with Spark's statistics and number format.
+- `replace` and `na.replace`, `transform`, `toDF`, `createOrReplaceTempView`/`createTempView` (found by `table()` and Spark SQL), `isEmpty`, `tail`, `Column.try_cast`, `catalog.listTables` and `catalog.dropTempView`.
+- `mborobak-scan` reads notebooks written for IRISpark, skips hidden folders such as `.ipynb_checkpoints`, and counts `model.transform(df)` in files that import MLlib as MLlib. On a set of 43 IRISpark notebooks, 96% of the in-scope calls are supported.
+
 ## 0.3.0 (2026-11-20)
 
 Spark SQL statements, regular expressions and faster results: tier 3 of the [POC readiness plan](docs/poc-readiness-plan.md). On the public Databricks notebooks, 99% of the PySpark calls that matter in a POC are now supported (94% in 0.2.2); only `rand` and `sha1` remain. **Behavior change:** `session.sql()` now takes Spark SQL; set `mborobak.sql.dialect` to `"iris"` for IRIS SQL.

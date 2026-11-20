@@ -117,6 +117,16 @@ DATASETS: dict[str, tuple[str, str, list[tuple]]] = {
              "31/12/1999 18:20", 2),
         ],
     ),
+    "stats": (
+        "id INT, g VARCHAR(5), x DOUBLE, y DOUBLE, i INT, n NUMERIC(10,2), s VARCHAR(10)",
+        "id int, g string, x double, y double, i int, n decimal(10,2), s string",
+        [(1, "a", 1.0, 2.0, 1, D("1.50"), "1.5"), (2, "a", 2.0, 4.1, 2, D("2.50"), "2"),
+         (3, "a", 4.0, 7.9, 4, D("3.50"), "x"), (4, "a", None, 1.0, None, None, None),
+         (5, "a", 10.5, 20.25, 7, D("10.00"), "10"), (6, "b", 5.0, 5.0, 5, D("1.00"), "abc"),
+         (7, "c", None, None, None, None, None), (8, "d", 1.0, NAN, 1, D("1.00"), "1"),
+         (9, "d", NAN, 2.0, 2, D("2.00"), "NaN"), (10, "e", -3.5, -1.0, -2, D("-0.25"), "-3"),
+         (11, "e", 2.25, 3.0, 3, D("0.75"), " 4 "), (12, "e", 2.25, 3.5, 3, D("0.75"), "")],
+    ),
     "regex": (
         "id INT, s VARCHAR(40), p VARCHAR(20)",
         "id int, s string, p string",

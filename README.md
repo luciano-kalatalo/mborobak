@@ -52,11 +52,12 @@ IRIS is fast at SQL, and many data teams think in DataFrames. Mborobak gives the
 | Union | `union`/`unionAll` by position, with Spark's numeric widening; `unionByName`, with `allowMissingColumns` |
 | Expressions | arithmetic, comparisons, `&`, `\|`, `~`, `when().otherwise()`, `cast`, `isNull`, `isin`, `like`, `between`, `eqNullSafe`, sort orders with null placement |
 | Functions | null handling (`coalesce`, `nullif`, `nvl`, `nvl2`, `greatest`, `least`, `isnan`, `isnull`); strings (`upper`, `lower`, `trim`, `length`, `substring`, `concat`, `concat_ws`, `lpad`, `rpad`, `instr`, `locate`, `replace`, `initcap`, `reverse`, `repeat`); math (`round`, `bround`, `abs`, `ceil`, `floor`, `pow`, `sqrt`, `exp`, `log`, `log10`, `log2`, `log1p`, `signum`, `pmod`); regular expressions (`rlike`, `regexp_replace`, `regexp_extract`, `regexp_count`, `regexp_substr`, `regexp_instr`), through SQL functions Mborobak creates in IRIS on first use |
-| Missing values | `fillna`/`na.fill`, `dropna`/`na.drop` |
+| Missing values | `fillna`/`na.fill`, `dropna`/`na.drop`, `replace`/`na.replace` |
+| Statistics | `stddev`, `variance` and their sample and population forms, `corr`, `covar_pop`, `covar_samp`, `skewness`, `kurtosis`, exact `median` and `percentile`; `describe()` and `summary()` |
 | Dates and times | `year` … `second`, `weekofyear`, `date_add`, `date_sub`, `add_months`, `datediff`, `months_between`, `last_day`, `trunc`, `date_trunc`, `date_format`, `to_date`, `to_timestamp`, `current_date`, `current_timestamp` |
 | SQL strings | `F.expr("…")`, `selectExpr("…")`, `filter("…")`/`where("…")` with Spark SQL expressions, functions and windows |
 | Windows | `Window.partitionBy().orderBy().rowsBetween()/rangeBetween()`; `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first`, `last`, and aggregates `.over(window)`; filtering on window results (top-N per group); `dropDuplicates` |
-| Actions | `collect`, `show`, `count`, `take`, `first`, `head`, `toPandas` |
+| Actions | `collect`, `show`, `count`, `take`, `first`, `head`, `tail`, `isEmpty`, `toPandas` |
 | Writing tables | `df.write.saveAsTable(name)` with modes `errorifexists`, `append`, `overwrite`, `ignore`; `insertInto`. Runs as `CREATE TABLE` plus `INSERT … SELECT` in one transaction, so the rows never leave IRIS |
 | Inspection | `schema`, `columns`, `dtypes`, `printSchema`, `explain()`, `toSQL()`, per-action metrics in `session.lastExecution` |
 

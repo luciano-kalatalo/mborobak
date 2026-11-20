@@ -112,3 +112,8 @@ With semi and anti joins, `unionByName`, `spark.read.table` and named `sql()` pa
 With regular expressions (tier 3, first item), in-scope coverage today is **95%** on the dbdemos set (82% of all calls) and **99%** on the sample. What remains is Spark SQL in `%sql` cells and `spark.sql()`, and `rand` and `sha1`.
 
 Released in 0.3.0 on 2026-11-20 with regular expressions and faster results. With Spark SQL statements, in-scope coverage today is **99%** on the dbdemos set (85% of all calls) and **100%** on the sample. The only calls left are `rand` and `sha1`, not scheduled; the rest is platform code a POC replaces (`display`, file and stream reads, MLlib).
+
+## 6. Second scan: IRISpark notebooks (2026-11-20)
+
+A set of 43 notebooks written for IRISpark, Mborobak's predecessor (DataFrame basics, functions, joins, windows, data quality, feature engineering, time series, ML workflows), scanned with IRISpark's module names recognized: 1,548 calls, 146 out of scope (MLlib 131, file reads and UDFs). Before this release's statistics and DataFrame helpers, about 94% of the in-scope calls were supported; after it, **96%** (1,345 of 1,402). What remains: arrays and maps (`array`, `collect_list`, `collect_set`, `create_map`, `split`: 18 calls, no array type), more functions (`md5`, `sha1`, `sha2`, `crc32`, `levenshtein`, trigonometry, `dayname`, UTC conversions: about 20), `pivot`/`unpivot`/`cube`/`rollup` (7), sampling (`randomSplit`, `sample`: 8) and a few IRISpark-only names (`charindex`, `timestampdiff`).
+

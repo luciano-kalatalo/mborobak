@@ -1,6 +1,6 @@
 # SQL Compiler Specification
 
-Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.10 · 2026-11-20
+Scientificloud · Mborobak · Control document 1 of 3 · Draft 0.11 · 2026-11-20
 
 Implements [mborobak-scope.md](mborobak-scope.md) §4–§6. IRIS facts cited as "study §x" come from [iris-behavior-study.md](iris-behavior-study.md) (IRIS 2026.2); facts marked **(probe 2026-11-18b)** or **(probe 2026-11-18c)** come from follow-up checks on the same instance, recorded in §12. Draft 0.2 resolves O1, O2, O3 and O5 (§13) and adds §7.9 after probe 2026-11-18c. Draft 0.3 follows the first differential run against PySpark 4.3 ([compatibility matrix](compatibility-matrix.md) 0.2): the cast trigger moves from `LOG(0)` to `$LISTGET` because IRIS also raises `<ILLEGAL VALUE>` for `DOUBLE` division by zero, and casts from `double`/`decimal` to integers get a range check (§7.7).
 
@@ -484,6 +484,15 @@ With `mborobak.sql.dialect = "spark"`, the default since release 0.3, `session.s
 **Aggregation.** The grouping keys are the `GROUP BY` expressions, with ordinals and select aliases replaced by their expressions (an alias only when no input column has that name, as Spark's `groupByAliases`), or for `GROUP BY ALL` the select items without aggregates. Each distinct aggregate call in the select list, `HAVING` and `ORDER BY` is computed once: `groupBy(key AS __mborobak_g0, …).agg(agg AS __mborobak_a0, …)`. Then the select list, `HAVING` and `ORDER BY` are rewritten top-down, replacing every key expression and aggregate call (compared with names case-insensitive) by its hidden column, and become `filter`, `orderBy` and `select(... AS <Spark's name>)`. An expression left that is neither (a column not grouped) fails to resolve, reported as an `AnalysisError`. Without aggregates, `GROUP BY k` is `select(k).distinct()`. The compiler merges all of this into one `SELECT … GROUP BY … HAVING … ORDER BY` (§9.2).
 
 **`{name}` placeholders** (PySpark's `spark.sql(query, df=df)`) are filled before parsing: a DataFrame becomes a CTE-like relation named `__mborobak_<name>`, other values their text.
+
+### 7.18 Statistics (release 0.3.x)
+
+IRIS SQL has `STDDEV_SAMP`, `STDDEV_POP`, `VAR_SAMP` and `VAR_POP` (plain `STDDEV` and `VARIANCE` give 0 for one row, where Spark's give NULL, so they are not used), and no median, percentile, correlation, covariance, skewness or kurtosis.
+
+- **Standard deviation and variance** (`stddev`, `std`, `stddev_samp`, `stddev_pop`, `variance`, `var_samp`, `var_pop`) render IRIS's function over the input cast to `DOUBLE` (an integer or decimal input otherwise gives `NUMERIC`), inside `CASE WHEN MAX(CASE WHEN x <> x THEN 1 ELSE 0 END) = 1 THEN NaN ELSE … END`: IRIS returns 0 for a group containing NaN, Spark NaN.
+- **`corr`, `covar_pop`, `covar_samp`** are formulas over `COUNT` and `SUM`s of the pairs where both values are present (`n`, `Σx`, `Σy`, `Σxy`, `Σx²`, `Σy²`), with NULL where Spark's formula divides by zero. **`skewness`** and **`kurtosis`** are Spark's population moments `√n·M3/M2^1.5` and `n·M4/M2² − 3`, with the central sums `M2`, `M3`, `M4` expanded into `Σx … Σx⁴`. These are built from Column operations and keep Spark's name through an `Alias`. Sums of powers lose precision when the mean is large against the spread (Spark updates central moments row by row); the differential suite's data agree within 1e-12.
+- **`median`** and **`percentile(col, p)`** are rewritten by `GroupedData.agg` (also reached by `select`): a projection adds, per input column, `ROW_NUMBER() OVER (PARTITION BY keys ORDER BY x NULLS LAST)` (NaN sorts largest, §7.9) and `COUNT(x) OVER (PARTITION BY keys)`; a second projection marks the rows at ranks `⌊pos⌋+1` and `⌊pos⌋+2` of the 0-based position `pos = (n − 1)·p` (decimal arithmetic, and `rn − 1 ≤ pos < rn` instead of `FLOOR`, whose overflow guard would multiply the SQL); the aggregate is `v_low + frac·(v_high − v_low)`, or `v_low` when `frac` is 0. The marked values are summed, not `MAX`ed: IRIS's `MAX` skips NaN (matrix FP-06). Each percentile costs about 45 parameters, so a few dozen fit in one query.
+- **`describe()` and `summary()`** compute `count`, `avg`, `stddev`, `min`, a NaN-aware `max` and nearest-rank percentiles (Spark's `percentile_approx`, which returns a value of the column, exactly here) in one aggregate query per 20 columns (each percentile about 11 parameters), format the values in Python as Spark casts them to text (`java_double` for doubles), and load the small result with `createDataFrame` (§9.8). String columns are averaged through `try_cast` to double: a cast that gives NULL for invalid text, the same validity check as §7.7 with `ELSE NULL` instead of the error trigger.
 
 ## 8. Optional rewrites
 

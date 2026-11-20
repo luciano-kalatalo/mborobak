@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.10 · 2026-11-20
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.11 · 2026-11-20
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -376,6 +376,22 @@ With `mborobak.sql.dialect = "spark"`, the default since 0.3, `sql()` takes Spar
 | SQL-07 | `?` and `:name` parameters | Literal values | Same | Same | diff |
 | SQL-08 | `CREATE`, `INSERT`, `SELECT` without `FROM`, `EXCEPT`, `OFFSET`, window functions in an aggregating select | Supported | `UnsupportedOperationError` | Unsupported | diff |
 | SQL-09 | A column neither grouped nor aggregated; an unknown column; a `GROUP BY` ordinal out of range | `AnalysisException` | `AnalysisError` | Same | diff |
+
+### 2.20 Statistics and DataFrame helpers (release 0.3.x)
+
+Asked for by a set of 43 IRISpark notebooks, scanned on 2026-11-20 ([compiler spec](compiler-spec.md) §7.18).
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| STAT-01 | `stddev`, `std`, `stddev_samp`, `stddev_pop`, `variance`, `var_samp`, `var_pop` over doubles, ints and decimals; one row; NaN in the group | `double`; NULL for a sample of one; NaN | `STDDEV_SAMP` …; `NUMERIC` for ints and decimals; 0 for a group with NaN | Input cast to `DOUBLE`; NaN check first | Emulated (spec §7.18) | diff |
+| STAT-02 | `corr`, `covar_pop`, `covar_samp` | NULL where the formula divides by zero | No such functions | Sums over the complete pairs | Emulated | diff |
+| STAT-03 | `skewness`, `kurtosis` | Population moments | No such functions | Sums of powers | Emulated; precision drops when the mean is large against the spread | diff |
+| STAT-04 | `median`, `percentile(col, p)`: interpolation, NULLs, NaN (largest), ints and decimals, global, inside expressions | Exact | No ordered aggregates | Window numbering, then marked sums | Emulated | diff |
+| STAT-05 | `describe()`, `summary()` with defaults, a subset of columns, and chosen statistics including `33%`; string columns; NaN | Strings in Spark's number format; quartiles from `percentile_approx` | — | One query per 20 columns, formatted in Python; exact nearest-rank quartiles | Same (the 17th digit of a standard deviation can differ) | diff |
+| STAT-06 | `percentile` with a list of percentages; statistics over a window | Arrays; supported | — | `UnsupportedOperationError` | Unsupported | diff |
+| DF-01 | `replace` / `na.replace`: values, lists, dicts, `subset`, `None` as the new value | Type-matched columns | — | `CASE` per column | Same | diff |
+| DF-02 | `transform`, `toDF`, `createOrReplaceTempView` with `table()` and Spark SQL | As described | — | Session-level names | Same | diff |
+| DF-03 | `isEmpty`, `tail` | As described | — | `take(1)`; every row fetched for `tail` | Same | diff |
 
 ## 3. Differential test suite
 

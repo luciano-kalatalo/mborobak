@@ -162,6 +162,15 @@ class Column:
         if not isinstance(expr, (E.AggregateCall, E.WindowFunc)):
             raise TypeError("over() applies to an aggregate (sum, count, …) or a window function (row_number, "
                             "rank, lag, …)")
+        if isinstance(expr, E.AggregateCall):
+            from .analyzer import STAT_AGGREGATES
+
+            name = expr.function.split(":")[0]
+            if name in STAT_AGGREGATES or name in ("median", "percentile", "percentile_approx"):
+                from .errors import UnsupportedOperationError
+
+                raise UnsupportedOperationError(f"{name}() over a window is not supported; aggregate with groupBy() "
+                                                "and join the result back")
         return Column(E.WindowExpr(expr, window._partition, window._order, window._frame))
 
     def substr(self, startPos: Any, length: Any) -> "Column":  # noqa: N803
@@ -182,6 +191,10 @@ class Column:
         return Column(E.Cast(self._expr, parse_type(dataType)))
 
     astype = cast
+
+    def try_cast(self, dataType: DataType | str) -> "Column":  # noqa: N803
+        """As ``cast``, but text that isn't a valid number gives NULL instead of an error (Spark 4)."""
+        return Column(E.Cast(self._expr, parse_type(dataType), lenient=True))
 
     # ---------------------------------------------------------------- ordering
     def asc(self) -> "Column":

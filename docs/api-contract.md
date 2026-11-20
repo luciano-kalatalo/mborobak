@@ -1,6 +1,6 @@
 # API Contract
 
-Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.9 · 2026-11-20
+Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.10 · 2026-11-20
 
 Defines the public Python API of the P0 release: names, signatures, accepted arguments, return values, errors, and the number of queries each call may run. Implements [mborobak-scope.md](mborobak-scope.md) §5 and §7. How a plan becomes SQL is in the [compiler specification](compiler-spec.md) (control document 1); how results compare to PySpark is in the [compatibility matrix](compatibility-matrix.md) (control document 3).
 
@@ -72,6 +72,8 @@ Opening the connection is the only network call `getOrCreate()` and `create()` m
 | `catalog.refresh(name=None)` | `None` | Drops cached schemas: one table, or all when `name` is `None` |
 | `catalog.tableExists(name)` | `bool` | One schema lookup |
 | `catalog.listColumns(name)` | `list[CatalogColumn]` | Name, type, nullability, collation |
+| `catalog.listTables(dbName=None, pattern=None)` | `list[Table]` | Tables and views of an IRIS schema (`SQLUser` by default), then the session's temporary views; `Table` has PySpark's fields (`name`, `namespace`, `tableType`, `isTemporary` …) |
+| `catalog.dropTempView(name)` | `bool` | Removes a temporary view; `True` if it existed |
 | `conf.get(key, default=None)`, `conf.set(key, value)`, `conf.unset(key)` | | Mborobak settings only (§3.3); connection settings are read-only after creation |
 | `lastExecution` | `ExecutionMetrics` or `None` | Metrics of the most recent action (§7.2) |
 | `stop()` | `None` | Closes the connection it opened; the session can't be used afterwards (`SessionClosedError`) |
@@ -166,6 +168,10 @@ All return a new `DataFrame`. Column arguments accept a column name (`str`) or a
 | `agg(*exprs)` | aggregate `Column`s or a `dict` | Same as `groupBy().agg(...)` |
 | `fillna(value, subset=None)`, `na.fill(...)` | `value`: `int`, `float`, `str`, `bool`, or a `dict` of column name to value; `subset`: a name or a list | Replaces NULL, and NaN in double columns. Without a dict, a number fills numeric columns, a string string columns, a bool boolean columns; other columns are left as they are. The value is cast to each column's type, as in Spark (`1.7` fills an `int` column with 1). A dict value of the wrong kind raises `AnalysisError`. (0.2) |
 | `dropDuplicates(subset=None)`, `drop_duplicates(...)` | `subset`: a name or a list | One row per distinct `subset` value; which row is kept is not defined, as in Spark. Without `subset`, `distinct()` (0.2) |
+| `replace(to_replace, value, subset=None)`, `na.replace(...)` | `to_replace`: a value, a list, or a dict of old to new; `value`: a value or a list | Spark's rules: numbers replace in numeric columns, strings in string columns, booleans in boolean columns; the new value is cast to the column's type; `None` makes NULL; mixed kinds raise `ValueError` |
+| `transform(func, *args, **kwargs)` | a function returning a `DataFrame` | `func(df, *args, **kwargs)`, for chaining custom steps |
+| `toDF(*cols)` | new names, one per column | Renames every column |
+| `createOrReplaceTempView(name)`, `createTempView(name)` | `str` | A session name for the DataFrame, found by `table(name)`, `read.table(name)` and Spark SQL in `sql()`. Nothing is created in IRIS. `createTempView` raises `AnalysisError` if the name exists |
 | `dropna(how="any", thresh=None, subset=None)`, `na.drop(...)` | `how`: `"any"` or `"all"`; `thresh`: `int` | Drops rows with NULL, or NaN in double columns, in the `subset` columns. `thresh` keeps rows with at least that many valid values and overrides `how`. (0.2) |
 
 ### 4.2 Join types
@@ -205,6 +211,10 @@ Each runs exactly one data query.
 | `count()` | `int` | Runs `SELECT COUNT(*)` over the plan; ordering is dropped |
 | `show(n=20, truncate=True, vertical=False)` | `None` | Prints. `truncate=True` cuts cells to 20 characters (or `mborobak.show.truncate`); an `int` sets the width; `False` disables it. NULL prints as `NULL`. Fetches `n + 1` rows so it can print "only showing top n rows" |
 | `toPandas()` | `pandas.DataFrame` | Types per §5.3 |
+| `isEmpty()` | `bool` | Runs `take(1)` |
+| `tail(num)` | `list[Row]` | The last `num` rows; fetches every row, as IRIS has no offset from the end |
+| `describe(*cols)` | `DataFrame` of strings | `count`, `mean`, `stddev`, `min`, `max` of the numeric and string columns (or of `cols`), formatted as Spark prints them; string columns' mean and stddev use `try_cast` to double. Runs one aggregate query per 20 columns, then loads the small result as `createDataFrame` does (§3.6) |
+| `summary(*statistics)` | `DataFrame` of strings | As `describe()`, with Spark's default `count`, `mean`, `stddev`, `min`, `25%`, `50%`, `75%`, `max`, or the given ones (also `count_distinct`, `approx_count_distinct`, any `p%`). Percentages follow Spark's `percentile_approx`: the smallest value with at least p of the rows, here exact |
 
 ### 4.5 Schema and diagnostics
 
@@ -317,6 +327,7 @@ Python operator precedence applies: `F.col("a") > 1 & F.col("b") < 2` is a mista
 | Method | Notes |
 |--------|-------|
 | `alias(name)`, `name(name)` | Output name |
+| `try_cast(dataType)` | As `cast`, but text that isn't a valid number becomes NULL instead of an error (Spark 4) |
 | `cast(dataType)`, `astype(dataType)` | A `DataType` or a type name (`"int"`, `"bigint"`, `"double"`, `"decimal(10,2)"`, `"string"`, `"boolean"`, `"date"`, `"timestamp_ntz"`). Invalid text raises `MborobakCastError` at the action (compiler spec §7.7) |
 | `isNull()`, `isNotNull()` | |
 | `eqNullSafe(other)` | Null-safe equality (`<=>` in Spark) |
@@ -361,6 +372,17 @@ Release 0.2 adds null, string and math functions. Their IRIS SQL is in compiler 
 | `ceil(col)`, `ceiling(col)`, `floor(col)` | `bigint` for integers and doubles, `decimal(p-s+1,0)` for decimals. The `scale` argument is not supported yet |
 | `pow(a, b)`, `power(a, b)`, `sqrt`, `exp`, `ln`, `log(x)`, `log(base, x)`, `log10`, `log2`, `log1p`, `signum`, `sign` | `double`. Out-of-domain inputs give NaN, NULL or infinity as in Spark |
 | `pmod(dividend, divisor)` | Non-negative remainder; a zero divisor raises `MborobakArithmeticError` |
+
+Statistics (compiler spec §7.18, compatibility matrix §2.20). All return `double`; NaN in a group gives NaN, as in Spark:
+
+| Function | Notes |
+|----------|-------|
+| `stddev(col)`, `std(col)`, `stddev_samp(col)`, `stddev_pop(col)`, `variance(col)`, `var_samp(col)`, `var_pop(col)` | IRIS's `STDDEV_SAMP`, `VAR_POP` …; sample statistics of one row are NULL |
+| `corr(col1, col2)`, `covar_pop(col1, col2)`, `covar_samp(col1, col2)` | Over rows where both are not NULL; NULL where Spark divides by zero (a constant column) |
+| `skewness(col)`, `kurtosis(col)` | Spark's population moments (excess kurtosis); NULL when the spread is zero |
+| `median(col)`, `percentile(col, percentage)` | Exact, interpolated between neighbors as Spark's `percentile`; in `agg()` and `select()`, not over a window. A list of percentages or a frequency raises `UnsupportedOperationError` |
+
+The statistical aggregates over a window (`stddev(x).over(w)`) raise `UnsupportedOperationError`.
 
 Regular expressions (0.3, compiler spec §7.16, compatibility matrix §2.18). The pattern syntax is ICU's, which is Java's for nearly every pattern; IRIS runs them in SQL functions Mborobak creates in the schema `Mborobak` the first time a session needs one (`CREATE FUNCTION` permission, or an administrator's `session.installFunctions()`):
 

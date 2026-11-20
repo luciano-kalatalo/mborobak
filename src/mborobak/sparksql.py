@@ -326,6 +326,8 @@ class StatementParser(Parser):
                     f"{'.'.join(parts)}: three-part names (catalog.schema.table) are not supported; IRIS tables "
                     "are schema.table")
             cte = scope.lookup(parts[0]) if len(parts) == 1 else None
+            if cte is None and len(parts) == 1:
+                cte = self.session._temp_views.get(parts[0].lower())  # createOrReplaceTempView
             if cte is not None:
                 df = cte.alias(parts[0])
             else:

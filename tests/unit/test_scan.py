@@ -234,3 +234,10 @@ def test_hidden_folders_and_irispark_imports(tmp_path):
     assert r["F.col"] == (SUPPORTED, 1)
     assert r["F.charindex"][0] == NOT_SCHEDULED  # an IRISpark function
     assert r["pyspark.ml"][0] == OUT_OF_SCOPE
+
+
+def test_ml_transform_is_mllib_not_dataframe_transform():
+    ml = found(scan_source("from pyspark.ml.feature import VectorAssembler\nmodel.transform(df)\nest.fit(df)\n"))
+    assert ml["pyspark.ml"] == (OUT_OF_SCOPE, None, 3)  # the import, transform and fit
+    plain = found(scan_source("df.transform(clean).describe()\n"))
+    assert plain[".transform()"][0] == SUPPORTED and plain[".describe()"][0] == SUPPORTED

@@ -144,7 +144,7 @@ def resolve(expr: E.Expr, plan: Plan, operation: str | None, allow_star: bool = 
         if isinstance(e, E.Like):
             return E.Like(go(e.child), go(e.pattern))
         if isinstance(e, E.Cast):
-            return E.Cast(go(e.child), e.to)
+            return E.Cast(go(e.child), e.to, e.lenient)
         if isinstance(e, E.CaseWhen):
             return E.CaseWhen(tuple((go(c), go(v)) for c, v in e.branches),
                               go(e.otherwise) if e.otherwise is not None else None)
@@ -356,6 +356,13 @@ def infer(expr: E.Expr, operation: str | None = None) -> tuple[DataType, bool]:
                 infer(expr.child, operation)
             return LongType(), False
         ct, _ = infer(expr.child, operation)
+        if expr.function in STAT_AGGREGATES or expr.function == "median" or expr.function.startswith("percentile"):
+            if not (ct.is_numeric or isinstance(ct, NullType)):
+                raise AnalysisError(f"{expr.function.split(':')[0]}() needs a number, got {ct.simpleString()}",
+                                    operation=operation)
+            if expr.function.startswith("percentile_approx") and ct.is_integral:
+                return ct, True
+            return DoubleType(), True
         if expr.function == "sum":
             if ct.is_integral:
                 return LongType(), True
@@ -426,6 +433,11 @@ def check_no_window(expr: E.Expr, operation: str | None, where: str) -> None:
 
 
 # --------------------------------------------------------------------------- output attributes
+
+
+# Spark's statistical aggregates with an IRIS equivalent (sample or population), compiler spec §7.18
+STAT_AGGREGATES = {"stddev": "STDDEV_SAMP", "std": "STDDEV_SAMP", "stddev_samp": "STDDEV_SAMP",
+                   "stddev_pop": "STDDEV_POP", "variance": "VAR_SAMP", "var_samp": "VAR_SAMP", "var_pop": "VAR_POP"}
 
 
 def output_name(original: E.Expr) -> str:

@@ -56,6 +56,8 @@ def expr_name(expr: E.Expr) -> str:
         return f"{expr_name(expr.child)} LIKE {expr_name(expr.pattern)}"
     if isinstance(expr, E.Cast):
         child = expr.child
+        if expr.lenient:
+            return f"TRY_CAST({expr_name(child)} AS {expr.to.simpleString().upper()})"
         if isinstance(child, (E.UnresolvedColumn, E.AttrRef)):
             return expr_name(child)  # plain cast of a column keeps its name (API contract A1)
         return f"CAST({expr_name(child)} AS {expr.to.simpleString().upper()})"
@@ -67,6 +69,9 @@ def expr_name(expr: E.Expr) -> str:
         if isinstance(expr.child, E.Star):
             return "count(1)"
         inner = expr_name(expr.child)
+        if ":" in expr.function:  # percentile:0.25 → percentile(x, 0.25, 1)
+            fn, p = expr.function.split(":")
+            return f"{fn}({inner}, {p}, {'10000' if fn == 'percentile_approx' else '1'})"
         return f"{expr.function}({'DISTINCT ' if expr.distinct else ''}{inner})"
     if isinstance(expr, E.SortOrder):
         return expr_name(expr.child)

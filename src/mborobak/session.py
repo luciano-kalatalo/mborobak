@@ -144,6 +144,50 @@ class _CatalogAPI:
     def listColumns(self, name: str):  # noqa: N802
         return list(self._s._catalog.lookup(name).columns)
 
+    def listTables(self, dbName: str | None = None, pattern: str | None = None) -> list:  # noqa: N802, N803
+        """Tables and views of an IRIS schema (``SQLUser`` by default), then the session's temporary views."""
+        import fnmatch
+
+        from .catalog import DEFAULT_SCHEMA
+
+        schema = dbName or DEFAULT_SCHEMA
+        rows = []
+        if self._s._executor is not None:
+            rows = self._s._executor.lookup(
+                "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES "
+                "WHERE UPPER(TABLE_SCHEMA) = UPPER(?) ORDER BY TABLE_NAME", [schema])
+        out = [Table(r[1], None, [r[0]], None, "VIEW" if str(r[2]).upper() == "VIEW" else "MANAGED", False)
+               for r in rows]
+        out += [Table(n, None, [], None, "TEMPORARY", True) for n in sorted(self._s._temp_views)]
+        if pattern is not None:
+            out = [t for t in out if fnmatch.fnmatch(t.name.lower(), pattern.lower().replace("*", "*"))]
+        return out
+
+    def dropTempView(self, viewName: str) -> bool:  # noqa: N802, N803
+        return self._s._temp_views.pop(viewName.lower(), None) is not None
+
+
+class Table(tuple):
+    """``catalog.listTables()`` entry, as PySpark's: name, catalog, namespace, description, tableType,
+    isTemporary."""
+
+    __slots__ = ()
+    _fields = ("name", "catalog", "namespace", "description", "tableType", "isTemporary")
+
+    def __new__(cls, name, catalog, namespace, description, tableType, isTemporary):  # noqa: N803
+        return super().__new__(cls, (name, catalog, namespace, description, tableType, isTemporary))
+
+    name = property(lambda self: self[0])
+    catalog = property(lambda self: self[1])
+    namespace = property(lambda self: self[2])
+    description = property(lambda self: self[3])
+    tableType = property(lambda self: self[4])  # noqa: N815
+    isTemporary = property(lambda self: self[5])  # noqa: N815
+
+    def __repr__(self) -> str:
+        return (f"Table(name={self.name!r}, catalog=None, namespace={self.namespace!r}, description=None, "
+                f"tableType={self.tableType!r}, isTemporary={self.isTemporary})")
+
 
 class MborobakSession:
     builder = _BuilderDescriptor()
@@ -166,7 +210,8 @@ class MborobakSession:
         self.catalog = _CatalogAPI(self)
         self._sql_cache: OrderedDict = OrderedDict()
         self._temp_tables: list = []
-        self._functions_ready: set[str] = set()  # irisfuncs known to exist (compiler spec §7.16)  # GLOBAL TEMPORARY tables of createDataFrame(), dropped by stop()
+        self._functions_ready: set[str] = set()
+        self._temp_views: dict = {}  # createOrReplaceTempView: lower-case name -> DataFrame  # irisfuncs known to exist (compiler spec §7.16)  # GLOBAL TEMPORARY tables of createDataFrame(), dropped by stop()
         self.lastExecution: ExecutionMetrics | None = None
         self.irisVersion: str | None = None
 
@@ -217,6 +262,9 @@ class MborobakSession:
         from .dataframe import DataFrame
 
         self._check_open()
+        view = self._temp_views.get(tableName.lower())
+        if view is not None:  # temporary views come first, as in Spark
+            return view.alias(tableName)
         loc = caller_location()
         op = f"table at {loc}" if loc else "table"
         info = self._catalog.lookup(tableName, op)

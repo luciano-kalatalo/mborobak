@@ -404,6 +404,8 @@ class _Visitor(ast.NodeVisitor):
             if module == prefix or module.startswith(prefix + "."):
                 name = {"pyspark.pipelines": "dlt", "irispark.ml": "pyspark.ml"}.get(prefix, prefix)
                 self.add(PLATFORM, name, node)
+                if name in ("pyspark.ml", "pyspark.mllib"):
+                    self.state.ml = True
                 return True
         return False
 
@@ -528,6 +530,9 @@ class _Visitor(ast.NodeVisitor):
         if func.attr in ("rowsBetween", "rangeBetween"):
             self.add(WINDOW, func.attr, node)
             return
+        if func.attr in ("transform", "fit") and self.state.ml:
+            self.add(PLATFORM, "pyspark.ml", node)  # model.transform(df), estimator.fit(df)
+            return
         if func.attr not in _SPARK_METHODS:
             return
         if func.attr in ("sum", "avg", "mean", "min", "max") and not node.args and not node.keywords:
@@ -554,6 +559,7 @@ class _State:
     foreign: set[str] = field(default_factory=set)                # imported non-Spark modules and names
     pandas: set[str] = field(default_factory=set)
     session_names: set[str] = field(default_factory=lambda: {"spark", "session"})
+    ml: bool = False  # pyspark.ml imported: model.transform(df) and .fit(df) are MLlib, not DataFrame calls
 
 
 _KNOWN_FUNCTIONS = set(_PLANNED_FUNCTION_RELEASE) | set(_OUT_OF_SCOPE_FUNCTIONS) | set("""

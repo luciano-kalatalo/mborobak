@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import decimal
 import math
 import time
@@ -42,6 +43,8 @@ if TYPE_CHECKING:
     from .writer import DataFrameWriter
 
 __all__ = ["DataFrame", "GroupedData"]
+
+_NO_VALUE = object()  # replace(): value not given
 
 _LATER = {
     "toLocalIterator": "P1", "createOrReplaceTempView": "P1",
@@ -331,6 +334,83 @@ class DataFrame:
     def na(self) -> "DataFrameNaFunctions":
         return DataFrameNaFunctions(self)
 
+    def replace(self, to_replace: Any, value: Any = _NO_VALUE, subset: Any = None) -> "DataFrame":
+        """Spark's ``replace``: values equal to ``to_replace`` (a value, a list, or a dict of old to new)
+        become ``value``, in the columns of the same kind (numbers, strings or booleans)."""
+        from .sql.functions import lit, when
+
+        op = _op("replace")
+        if isinstance(to_replace, dict):
+            if value is not _NO_VALUE and value is not None:
+                raise ValueError("replace(): with a dict, leave value out")
+            pairs = list(to_replace.items())
+        else:
+            if value is _NO_VALUE:
+                raise TypeError("replace() needs a value when to_replace is not a dict")
+            olds = list(to_replace) if isinstance(to_replace, (list, tuple)) else [to_replace]
+            news = list(value) if isinstance(value, (list, tuple)) else [value] * len(olds)
+            if len(olds) != len(news):
+                raise ValueError(f"replace(): {len(olds)} values to replace and {len(news)} replacements")
+            pairs = list(zip(olds, news))
+
+        def kind(v: Any) -> str:
+            if isinstance(v, bool):
+                return "bool"
+            if isinstance(v, (int, float, decimal.Decimal)):
+                return "number"
+            if isinstance(v, str):
+                return "string"
+            raise TypeError(f"replace(): values must be numbers, strings or booleans, got {type(v).__name__}")
+
+        kinds = {kind(o) for o, _ in pairs} | {kind(n) for _, n in pairs if n is not None}
+        if len(kinds) > 1:
+            raise ValueError("replace(): mixed type replacements are not supported, as in Spark")
+        wanted = kinds.pop()
+        targets = self._subset(subset, op) if subset is not None else list(self._plan.output)
+
+        def matches(a: E.Attribute) -> bool:
+            if wanted == "bool":
+                return isinstance(a.dtype, BooleanType)
+            if wanted == "string":
+                return isinstance(a.dtype, StringType)
+            return a.dtype.is_numeric
+
+        mapping: dict[str, Column] = {}
+        for a in targets:
+            if not matches(a):
+                continue
+            column = Column(E.AttrRef(a))
+            branches = None
+            for old, new in pairs:
+                target = lit(new).cast(a.dtype) if new is not None else lit(None).cast(a.dtype)
+                branches = when(column == old, target) if branches is None else branches.when(column == old, target)
+            mapping[a.name] = branches.otherwise(column)
+        return self._with_columns(mapping, op) if mapping else self
+
+    def transform(self, func: Any, *args: Any, **kwargs: Any) -> "DataFrame":
+        """``func(self, *args, **kwargs)``, for chaining custom steps (``df.transform(clean).transform(enrich)``)."""
+        result = func(self, *args, **kwargs)
+        if not isinstance(result, DataFrame):
+            raise TypeError(f"transform(): the function returned {type(result).__name__}, not a DataFrame")
+        return result
+
+    def toDF(self, *cols: str) -> "DataFrame":  # noqa: N802
+        names = _flatten(cols)
+        if len(names) != len(self._plan.output):
+            raise ValueError(f"toDF() needs {len(self._plan.output)} names, got {len(names)}")
+        return self.select(*[Column(E.Alias(E.AttrRef(a), n)) for a, n in zip(self._plan.output, names)])
+
+    def createOrReplaceTempView(self, name: str) -> None:  # noqa: N802
+        """A name for this DataFrame in the session: ``session.table(name)`` and Spark SQL in ``sql()`` find it.
+        Nothing is created in IRIS."""
+        self._session._temp_views[name.lower()] = self
+
+    def createTempView(self, name: str) -> None:  # noqa: N802
+        if name.lower() in self._session._temp_views:
+            raise AnalysisError(f"temporary view {name!r} already exists; use createOrReplaceTempView",
+                                operation=_op("createTempView"))
+        self.createOrReplaceTempView(name)
+
     def orderBy(self, *cols: Any, ascending: bool | list[bool] = True) -> "DataFrame":  # noqa: N802
         op = _op("orderBy")
         cols_list = _flatten(cols)
@@ -570,6 +650,87 @@ class DataFrame:
         names, rows = self._run(self._plan, "collect", _op("collect"))
         return make_rows(names, rows)
 
+    def isEmpty(self) -> bool:  # noqa: N802
+        return not self.take(1)
+
+    def tail(self, num: int) -> list[Row]:
+        """The last ``num`` rows. Without an IRIS ``OFFSET`` from the end, this fetches every row."""
+        return self.collect()[-num:] if num > 0 else []
+
+    def describe(self, *cols: Any) -> "DataFrame":
+        """count, mean, stddev, min and max of numeric and string columns, as strings (Spark's format)."""
+        return self._summary(["count", "mean", "stddev", "min", "max"], _flatten(cols), _op("describe"))
+
+    def summary(self, *statistics: str) -> "DataFrame":
+        """describe() plus approximate quartiles, or the given statistics: count, mean, stddev, min, max,
+        count_distinct, approx_count_distinct and percentages such as "33%"."""
+        stats = list(_flatten(statistics)) or ["count", "mean", "stddev", "min", "25%", "50%", "75%", "max"]
+        return self._summary(stats, [], _op("summary"))
+
+    def _summary(self, stats: list[str], cols: list, op: str) -> "DataFrame":
+        """One aggregate query per 20 columns, formatted in Python as Spark prints values, returned as a
+        DataFrame of strings (compiler spec §7.18). The quartiles are Spark's percentile_approx: the
+        smallest value with at least p of the rows, exact here."""
+        import decimal as _decimal
+
+        from .sql import functions as F
+
+        if cols:
+            attrs = [find_attr(c, self._plan.output, op) if isinstance(c, str) else
+                     resolve(to_column_expr(c), self._plan, op) for c in cols]
+            attrs = [a if isinstance(a, E.Attribute) else a.attr for a in attrs]
+        else:
+            attrs = [a for a in self._plan.output if a.dtype.is_numeric or isinstance(a.dtype, StringType)]
+        for s in stats:
+            if s not in ("count", "mean", "stddev", "min", "max", "count_distinct", "approx_count_distinct") and \
+                    not (s.endswith("%") and s[:-1].replace(".", "", 1).isdigit()):
+                raise ValueError(f"summary(): unknown statistic {s!r}")
+
+        def stat(a: E.Attribute, s: str) -> Column:
+            column = Column(E.AttrRef(a))
+            number = column if a.dtype.is_numeric else column.try_cast("double")
+            if s == "count":
+                return F.count(column)
+            if s == "mean":
+                return F.avg(number)
+            if s == "stddev":
+                return F.stddev(number)
+            if s in ("min", "max"):
+                extreme = F.min(column) if s == "min" else F.max(column)
+                if s == "max" and isinstance(a.dtype, DoubleType):  # Spark's max is NaN when one is; IRIS skips it
+                    return F.when(F.sum(F.isnan(column).cast("int")) > 0, F.lit(float("nan"))).otherwise(extreme)
+                return extreme
+            if s in ("count_distinct", "approx_count_distinct"):
+                return F.countDistinct(column)
+            p = _decimal.Decimal(s[:-1]) / 100
+            return Column(E.AggregateCall(f"percentile_approx:{p}", number._expr))
+
+        values: dict[tuple[int, str], Any] = {}
+        for start in range(0, len(attrs), 20):
+            chunk = attrs[start:start + 20]
+            items = [stat(a, s).alias(f"__mborobak_{i}_{k}") for i, a in enumerate(chunk) for k, s in enumerate(stats)]
+            if not items:
+                continue
+            row = self.groupBy().agg(*items).collect()[0]
+            for i, a in enumerate(chunk):
+                for k, s in enumerate(stats):
+                    values[(start + i, s)] = row[i * len(stats) + k]
+
+        def text(v: Any) -> str | None:
+            if v is None:
+                return None
+            if isinstance(v, bool):
+                return "true" if v else "false"
+            if isinstance(v, float):
+                return java_double(v)
+            if isinstance(v, (datetime.date, datetime.datetime)):
+                return v.isoformat(sep=" ") if isinstance(v, datetime.datetime) else v.isoformat()
+            return str(v)
+
+        rows = [tuple([s] + [text(values.get((i, s))) for i in range(len(attrs))]) for s in stats]
+        schema = StructType([StructField("summary", StringType())] + [StructField(a.name, StringType()) for a in attrs])
+        return self._session.createDataFrame(rows, schema)
+
     def take(self, num: int) -> list[Row]:
         names, rows = self._run(P.Limit(self._plan, num), "take", _op("take"))
         return make_rows(names, rows)
@@ -659,15 +820,21 @@ class GroupedData:
         if not exprs:
             raise ValueError("agg() needs at least one aggregate expression")
         key_exprs = [e for _, e in self._keys]
+        if any(isinstance(c, Column) and _has_percentile(c._expr) for c in exprs):
+            return self._percentile_agg(exprs, op)
+        return self._aggregate(self._df, exprs, op)
+
+    def _aggregate(self, source: DataFrame, exprs: tuple, op: str, names: list[str] | None = None) -> DataFrame:
+        key_exprs = [e for _, e in self._keys]
         aggs = []
-        for c in exprs:
+        for i, c in enumerate(exprs):
             if not isinstance(c, Column):
                 raise TypeError("agg() takes Columns or a dict")
             original = c._expr
-            resolved = resolve(original, self._df._plan, op)
+            resolved = resolve(original, source._plan, op)
             check_no_window(resolved, op, "agg(); add them with withColumn() after agg()")
             check_grouped(resolved, key_exprs, op)
-            name = output_name(original)
+            name = names[i] if names is not None else output_name(original)
             dtype, nullable = infer(resolved.child if isinstance(resolved, E.Alias) else resolved, op)
             if isinstance(dtype, DecimalType) and dtype.precision > 38:
                 dtype = DecimalType(38, dtype.scale)
@@ -676,8 +843,78 @@ class GroupedData:
             collation = "EXACT" if isinstance(core, E.AggregateCall) and core.function in ("min", "max") \
                 else None
             aggs.append((E.Attribute(E.new_id(), name, dtype, nullable, collation), resolved))
-        plan = P.Aggregate(self._df._plan, tuple(self._keys), tuple(aggs))
+        plan = P.Aggregate(source._plan, tuple(self._keys), tuple(aggs))
         return DataFrame(self._df._session, plan)
+
+    def _percentile_agg(self, exprs: tuple, op: str) -> DataFrame:
+        """median, percentile and percentile_approx (compiler spec §7.18). IRIS has no ordered aggregate, so a
+        window numbers each group's non-NULL values (NaN largest, as Spark sorts) and counts them, a second
+        projection marks the rows at the wanted ranks, and the aggregate sums the marked values, interpolating
+        as Spark's percentile does. SUM of the one marked value, not MAX: IRIS's MAX skips NaN (FP-06)."""
+        import decimal
+
+        from .sql import functions as F
+        from .sql.window import Window
+
+        names = [output_name(c._expr) if isinstance(c, Column) else None for c in exprs]
+        keys = [Column(e) for _, e in self._keys]
+        children: dict = {}   # value expression -> j
+        wanted: dict = {}     # (function, value expression) -> k
+        resolved_exprs = []
+        for c in exprs:
+            if not isinstance(c, Column):
+                raise TypeError("agg() takes Columns or a dict")
+            r = resolve(c._expr, self._df._plan, op)
+            resolved_exprs.append(r)
+            for node in E.walk(r):
+                if isinstance(node, E.AggregateCall) and _is_percentile(node):
+                    children.setdefault(node.child, len(children))
+                    wanted.setdefault((node.function, node.child), len(wanted))
+        windows = []
+        for child, j in children.items():
+            value = Column(child) if isinstance(infer(child, op)[0], DoubleType) else Column(child).cast("double")
+            ordered = Window.partitionBy(*keys).orderBy(value.asc_nulls_last())
+            windows += [F.row_number().over(ordered).alias(f"__mborobak_rn{j}"),
+                        F.count(value).over(Window.partitionBy(*keys)).alias(f"__mborobak_cnt{j}"),
+                        value.alias(f"__mborobak_v{j}")]
+        numbered = self._df.select("*", *windows)
+        by_name = {a.name: a for a in numbered._plan.output}
+        marks = []
+        for (function, child), k in wanted.items():
+            j = children[child]
+            rn, cnt = (Column(E.AttrRef(by_name[f"__mborobak_{n}{j}"])) for n in ("rn", "cnt"))
+            p = F.lit(decimal.Decimal("0.5" if function == "median" else function.split(":")[1]))
+            if function.startswith("percentile_approx"):  # nearest rank: the smallest value with p of the rows
+                x = F.greatest(cnt * p, F.lit(1))
+                marks += [F.when((rn - 1 < x) & (x <= rn), 1).alias(f"__mborobak_lo{k}")]
+                continue
+            # Spark's percentile: 0-based position (n - 1) * p, between ranks floor(pos) + 1 and floor(pos) + 2.
+            # Decimal arithmetic and no FLOOR: the row at rank floor(pos) + 1 is the one with rn - 1 <= pos < rn.
+            pos = (cnt - 1) * p
+            marks += [F.when((rn - 1 <= pos) & (pos < rn), 1).alias(f"__mborobak_lo{k}"),
+                      F.when((rn - 2 <= pos) & (pos < rn - 1), 1).alias(f"__mborobak_hi{k}"),
+                      F.when((rn - 1 <= pos) & (pos < rn), pos - (rn - 1)).alias(f"__mborobak_fr{k}")]
+        marked = numbered.select("*", *marks)
+        attrs = {a.name: a for a in marked._plan.output}
+
+        def ref(name: str) -> Column:
+            return Column(E.AttrRef(attrs[name]))
+
+        def replace(node: E.Expr):
+            if not (isinstance(node, E.AggregateCall) and _is_percentile(node)):
+                return None
+            j, k = children[node.child], wanted[(node.function, node.child)]
+            v = ref(f"__mborobak_v{j}")
+            v_low = F.sum(F.when(ref(f"__mborobak_lo{k}") == 1, v))
+            if node.function.startswith("percentile_approx"):
+                t = infer(node.child, op)[0]
+                return (v_low.cast(t) if isinstance(t, (IntegerType, LongType)) else v_low)._expr
+            frac = F.sum(ref(f"__mborobak_fr{k}"))
+            v_high = F.sum(F.when(ref(f"__mborobak_hi{k}") == 1, v))
+            return F.when(frac == 0, v_low).otherwise(v_low + frac.cast("double") * (v_high - v_low))._expr
+
+        rewritten = tuple(Column(E.transform_down(r, replace)) for r in resolved_exprs)
+        return self._aggregate(marked, rewritten, op, names)
 
     def count(self) -> DataFrame:
         from .sql import functions as F
@@ -707,16 +944,28 @@ class GroupedData:
 
 
 class DataFrameNaFunctions:
-    """``df.na``: ``fill`` and ``drop``, as ``fillna`` and ``dropna``."""
+    """``df.na``: ``fill``, ``drop`` and ``replace``, as ``fillna``, ``dropna`` and ``replace``."""
 
     def __init__(self, df: DataFrame):
         self._df = df
+
+    def replace(self, to_replace: Any, value: Any = None, subset: Any = None) -> DataFrame:
+        return self._df.replace(to_replace, value if value is not None or isinstance(to_replace, dict) else None,
+                                subset)
 
     def fill(self, value: Any, subset: Any = None) -> DataFrame:
         return self._df.fillna(value, subset)
 
     def drop(self, how: str = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
         return self._df.dropna(how, thresh, subset)
+
+
+def _is_percentile(node: E.AggregateCall) -> bool:
+    return node.function == "median" or node.function.startswith("percentile")
+
+
+def _has_percentile(expr: E.Expr) -> bool:
+    return any(isinstance(n, E.AggregateCall) and _is_percentile(n) for n in E.walk(expr))
 
 
 def _fills(value: Any, dtype, explicit: bool, op: str) -> bool:

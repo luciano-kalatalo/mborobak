@@ -159,6 +159,7 @@ class Like(Expr):
 class Cast(Expr):
     child: Expr
     to: DataType
+    lenient: bool = False  # try_cast: invalid text gives NULL instead of an error
 
     def children(self):
         return (self.child,)
