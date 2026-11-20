@@ -126,8 +126,9 @@ _PLATFORM = {
 }
 
 _TO_PANDAS = ("toPandas", "pandas_api", "to_pandas_on_spark", "to_koalas")
-_SPARK_MODULES = ("pyspark", "mborobak", "delta", "databricks")
-_FUNCTION_MODULES = ("pyspark.sql.functions", "mborobak.sql.functions")
+# irispark: Mborobak's predecessor, whose notebooks use PySpark's API under its own module names
+_SPARK_MODULES = ("pyspark", "mborobak", "delta", "databricks", "irispark")
+_FUNCTION_MODULES = ("pyspark.sql.functions", "mborobak.sql.functions", "irispark.functions")
 _PANDAS_MODULES = ("pandas", "numpy", "polars")
 
 
@@ -399,9 +400,10 @@ class _Visitor(ast.NodeVisitor):
 
     def _platform_import(self, module: str, node: ast.AST) -> bool:
         for prefix in ("pyspark.mllib", "pyspark.ml", "pyspark.streaming", "pyspark.pandas", "dlt",
-                       "pyspark.pipelines"):
+                       "pyspark.pipelines", "irispark.ml"):
             if module == prefix or module.startswith(prefix + "."):
-                self.add(PLATFORM, "dlt" if prefix == "pyspark.pipelines" else prefix, node)
+                name = {"pyspark.pipelines": "dlt", "irispark.ml": "pyspark.ml"}.get(prefix, prefix)
+                self.add(PLATFORM, name, node)
                 return True
         return False
 
@@ -662,7 +664,11 @@ def scan_paths(paths: list[str | Path]) -> Report:
     supported = _supported()
     total = Report()
     for path in map(Path, paths):
-        files = sorted(p for ext in ("*.py", "*.ipynb") for p in path.rglob(ext)) if path.is_dir() else [path]
+        if path.is_dir():  # hidden folders (.ipynb_checkpoints, .venv, .git) hold copies or other code
+            files = sorted(p for ext in ("*.py", "*.ipynb") for p in path.rglob(ext)
+                           if not any(part.startswith(".") for part in p.relative_to(path).parts[:-1]))
+        else:
+            files = [path]
         for f in files:
             try:
                 text = f.read_text(encoding="utf-8")

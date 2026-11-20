@@ -219,3 +219,18 @@ def test_coverage_without_out_of_scope_calls():
     assert report.coverage()["today"] == pytest.approx(1 / 3)
     assert report.coverage(in_scope=True)["today"] == pytest.approx(1 / 2)
     assert report.coverage(in_scope=True)["after 0.3"] == pytest.approx(1)
+
+
+def test_hidden_folders_and_irispark_imports(tmp_path):
+    code = ("from irispark import IrisParkSession, Window\nfrom irispark.functions import col, charindex\n"
+            "from irispark.ml.feature import VectorAssembler\n"
+            "df.select(col('a'), charindex('x', 'y')).show()\n")
+    (tmp_path / "a.py").write_text(code)
+    (tmp_path / ".ipynb_checkpoints").mkdir()
+    (tmp_path / ".ipynb_checkpoints" / "a-checkpoint.py").write_text(code)
+    report = scan_paths([tmp_path])
+    assert len(report.files) == 1
+    r = {f.label: (f.status, f.count) for f in report.findings.values()}
+    assert r["F.col"] == (SUPPORTED, 1)
+    assert r["F.charindex"][0] == NOT_SCHEDULED  # an IRISpark function
+    assert r["pyspark.ml"][0] == OUT_OF_SCOPE
