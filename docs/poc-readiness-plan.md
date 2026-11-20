@@ -111,4 +111,4 @@ With semi and anti joins, `unionByName`, `spark.read.table` and named `sql()` pa
 
 With regular expressions (tier 3, first item), in-scope coverage today is **95%** on the dbdemos set (82% of all calls) and **99%** on the sample. What remains is Spark SQL in `%sql` cells and `spark.sql()`, and `rand` and `sha1`.
 
-With Spark SQL statements, in-scope coverage today is **99%** on the dbdemos set (85% of all calls) and **100%** on the sample. The only calls left are `rand` and `sha1`, not scheduled; the rest is platform code a POC replaces (`display`, file and stream reads, MLlib).
+Released in 0.3.0 on 2026-11-20 with regular expressions and faster results. With Spark SQL statements, in-scope coverage today is **99%** on the dbdemos set (85% of all calls) and **100%** on the sample. The only calls left are `rand` and `sha1`, not scheduled; the rest is platform code a POC replaces (`display`, file and stream reads, MLlib).

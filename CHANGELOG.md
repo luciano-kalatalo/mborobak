@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-11-20)
+
+Spark SQL statements, regular expressions and faster results: tier 3 of the [POC readiness plan](docs/poc-readiness-plan.md). On the public Databricks notebooks, 99% of the PySpark calls that matter in a POC are now supported (94% in 0.2.2); only `rand` and `sha1` remain. **Behavior change:** `session.sql()` now takes Spark SQL; set `mborobak.sql.dialect` to `"iris"` for IRIS SQL.
 
 - Faster results: stored `NUMERIC` columns skip re-rounding when the driver already returns their scale, numeric pandas columns are built with numpy, and rows are fetched in batches. `toPandas()` on 1M rows takes about 2.5 s instead of 3.0 s, 13% over the IRIS driver plus pandas (was 29%), with the same values and types. The planned columnar (Arrow) transfer is not possible on IRIS 2026.2: the driver has no columnar API and IRIS iterates a query no faster than the driver delivers it (compiler spec §9.9, §12.9).
 - **Changed:** `session.sql()` takes Spark SQL `SELECT` statements by default (`WITH`, joins including semi and anti, `GROUP BY` aliases, ordinals and `ALL`, `HAVING`, `ORDER BY` aliases, `UNION`, `LIMIT`, `?`/`:name` parameters and `{df}` placeholders) and builds them from DataFrame operations, with Spark's names, types and semantics, as one IRIS query. Notebook `%sql` cells run as `spark.sql("…")`. Code that passes IRIS-specific SQL (IRIS functions, `TOP`, `%EXACT`) sets `conf.set("mborobak.sql.dialect", "iris")`, the behavior of 0.2 (compiler spec §7.17, API contract §3.5, matrix §2.19).
