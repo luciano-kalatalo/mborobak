@@ -31,19 +31,20 @@ def test_functions_through_module_alias_and_direct_imports():
     r = found(scan_source("""
 from pyspark.sql import functions as F
 import pyspark.sql.functions as G
-from pyspark.sql.functions import col, regexp_extract as td
+from pyspark.sql.functions import col, split as td
 df.select(F.col("a"), G.sum("b"), col("c"), td(col("d")), F.explode("e"))
 """))
     assert r["F.col"] == (SUPPORTED, None, 3)
     assert r["F.sum"] == (SUPPORTED, None, 1)
-    assert r["F.regexp_extract"] == (PLANNED, "0.3", 1)
+    assert r["F.split"] == (PLANNED, "0.3", 1)
     assert r["F.explode"] == (NOT_SCHEDULED, None, 1)
     assert r[".select()"] == (SUPPORTED, None, 1)
 
 
 def test_star_import_and_unimported_names():
-    r = found(scan_source("from pyspark.sql.functions import *\ndf.select(regexp_replace('a', 'x', ''), lit(0))"))
-    assert r["F.regexp_replace"] == (PLANNED, "0.3", 1)
+    r = found(scan_source("from pyspark.sql.functions import *\ndf.select(split('a', 'x'), regexp_replace('a', 'x', ''), lit(0))"))
+    assert r["F.split"] == (PLANNED, "0.3", 1)
+    assert r["F.regexp_replace"] == (SUPPORTED, None, 1)
     assert r["F.lit"][0] == SUPPORTED
     # without the import, a bare regexp_replace() is not a Spark call
     assert "F.regexp_replace" not in found(scan_source("regexp_replace(a)"))
@@ -184,10 +185,10 @@ def test_databricks_source_export():
 def test_coverage_is_cumulative_by_release():
     report = scan_notebook(notebook(
         "from pyspark.sql import functions as F",
-        "df.select(F.col('a'), F.regexp_replace('c', 'x', 'y'), F.explode('d'))",
+        "df.select(F.col('a'), F.split('c', 'x'), F.explode('d'))",
         "spark.createDataFrame(rows)"))
     cov = report.coverage()
-    # 5 calls: select, col and createDataFrame supported; regexp_replace 0.3; explode not scheduled
+    # 5 calls: select, col and createDataFrame supported; split 0.3; explode not scheduled
     assert cov["today"] == pytest.approx(3 / 5)
     assert cov["after 0.2"] == pytest.approx(3 / 5)
     assert cov["after 0.2.x"] == pytest.approx(3 / 5)
@@ -213,8 +214,8 @@ def test_sample_notebook_and_cli(capsys, tmp_path):
 
 
 def test_coverage_without_out_of_scope_calls():
-    report = scan_source("from pyspark.sql import functions as F\ndisplay(df.select(F.regexp_replace('a', 'x', '')))")
-    # display out of scope, select supported, regexp_replace planned for 0.3
+    report = scan_source("from pyspark.sql import functions as F\ndisplay(df.select(F.split('a', 'x')))")
+    # display out of scope, select supported, split planned for 0.3
     assert report.coverage()["today"] == pytest.approx(1 / 3)
     assert report.coverage(in_scope=True)["today"] == pytest.approx(1 / 2)
     assert report.coverage(in_scope=True)["after 0.3"] == pytest.approx(1)

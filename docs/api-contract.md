@@ -1,6 +1,6 @@
 # API Contract
 
-Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.7 · 2026-11-20
+Scientificloud · Mborobak · Control document 2 of 3 · Draft 0.8 · 2026-11-20
 
 Defines the public Python API of the P0 release: names, signatures, accepted arguments, return values, errors, and the number of queries each call may run. Implements [mborobak-scope.md](mborobak-scope.md) §5 and §7. How a plan becomes SQL is in the [compiler specification](compiler-spec.md) (control document 1); how results compare to PySpark is in the [compatibility matrix](compatibility-matrix.md) (control document 3).
 
@@ -67,6 +67,7 @@ Opening the connection is the only network call `getOrCreate()` and `create()` m
 | `table(name)` | `DataFrame` | See §3.4. Runs one schema lookup unless cached |
 | `sql(query, args=None)` | `DataFrame` | See §3.5 |
 | `createDataFrame(data, schema=None, samplingRatio=None, verifySchema=True)` | `DataFrame` | See §3.6 (0.2.x). Runs 2 statements at the call |
+| `installFunctions()` | `list[str]` | Creates the SQL functions Mborobak uses for regular expressions (schema `Mborobak`), for an administrator to run once where users may not create functions; returns their names. Not needed otherwise: they are created on first use (0.3) |
 | `read.table(name)` | `DataFrame` | The same as `table(name)` (0.2.x). `read.format()`, `option()`, `options()` and `schema()` return the reader and have no effect; `read.load()`, `csv()`, `parquet()`, `json()` and the other file readers raise `UnsupportedOperationError` |
 | `catalog.refresh(name=None)` | `None` | Drops cached schemas: one table, or all when `name` is `None` |
 | `catalog.tableExists(name)` | `bool` | One schema lookup |
@@ -351,6 +352,17 @@ Release 0.2 adds null, string and math functions. Their IRIS SQL is in compiler 
 | `pow(a, b)`, `power(a, b)`, `sqrt`, `exp`, `ln`, `log(x)`, `log(base, x)`, `log10`, `log2`, `log1p`, `signum`, `sign` | `double`. Out-of-domain inputs give NaN, NULL or infinity as in Spark |
 | `pmod(dividend, divisor)` | Non-negative remainder; a zero divisor raises `MborobakArithmeticError` |
 
+Regular expressions (0.3, compiler spec §7.16, compatibility matrix §2.18). The pattern syntax is ICU's, which is Java's for nearly every pattern; IRIS runs them in SQL functions Mborobak creates in the schema `Mborobak` the first time a session needs one (`CREATE FUNCTION` permission, or an administrator's `session.installFunctions()`):
+
+| Function | Notes |
+|----------|-------|
+| `Column.rlike(pattern)`, `rlike(str, regexp)`, `regexp(str, regexp)`, `regexp_like(str, regexp)` | `boolean`: a match anywhere. `pattern` is a string; `regexp` a column or name (`F.lit("…")` for a constant), as in PySpark |
+| `regexp_replace(string, pattern, replacement)` | Every match replaced; `$1` refers to a group, `\$` is a dollar sign. A `str` pattern or replacement is the text itself |
+| `regexp_extract(str, pattern, idx)` | Group `idx` (0: the whole match) of the first match; `''` when there is no match or the group took no part. A group beyond the pattern's raises `MborobakExecutionError` |
+| `regexp_count(str, regexp)`, `regexp_substr(str, regexp)`, `regexp_instr(str, regexp, idx=0)` | `int`; the first match or NULL; the 1-based position of the first match or 0. `regexp_instr` supports `idx=0` only |
+
+An invalid pattern raises `MborobakExecutionError` ("invalid regular expression") when the query runs. `split` and `regexp_extract_all` return arrays and raise `UnsupportedOperationError`.
+
 Date and time functions (compiler spec §7.12, compatibility matrix §2.14). Date arguments take dates, timestamps or date text (cast as Spark casts it):
 
 | Function | Notes |
@@ -394,7 +406,7 @@ Output names are Spark's, for example `RANK() OVER (PARTITION BY g ORDER BY k AS
 
 `F.expr(str)`, `df.selectExpr(*str)` and `df.filter(str)`/`where(str)` take Spark SQL expressions: literals with Spark SQL's types (`1.5` is a decimal, `1e3` and `2.0D` doubles, `1L` a bigint), column names (backticks for odd names, `a.x` for qualified ones), arithmetic, comparisons, `AND`/`OR`/`NOT`, `IS [NOT] NULL`, `[NOT] IN`, `[NOT] LIKE`, `[NOT] BETWEEN`, `CASE`, `CAST(x AS type)`, `if()`, `||`, every function of §6.4 by name (case-insensitive), `count(*)`, `count(DISTINCT x)`, and windows with `OVER (PARTITION BY … ORDER BY … ROWS/RANGE BETWEEN …)`. An alias may follow (`AS name` or just `name`) in `F.expr` and `selectExpr`. Default column names are Spark's for the SQL text.
 
-Not supported: `RLIKE`/`REGEXP` (planned with regular expressions in 0.3), `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, lambda functions, array and map access: each raises `UnsupportedOperationError`. Malformed text raises `mborobak.sqlexpr.ParseError` (an `AnalysisError`) when the expression is built, naming the position. The details are in compiler spec §7.13.
+`RLIKE` and `REGEXP` (and `NOT RLIKE`) are regular-expression matches, as `rlike` (0.3). Not supported: `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, lambda functions, array and map access: each raises `UnsupportedOperationError`. Malformed text raises `mborobak.sqlexpr.ParseError` (an `AnalysisError`) when the expression is built, naming the position. The details are in compiler spec §7.13.
 
 ### 6.5 Output names
 
@@ -447,6 +459,7 @@ Format defined in compiler spec §10. Output is deterministic for a given plan a
 | `schema`, `columns`, `dtypes`, `printSchema()`, `explain()`, `toSQL()` | 0 if all tables are cached | 0 |
 | Any action (§4.4) | 0 if cached | **exactly 1** |
 | `catalog.refresh()` | 0 | 0 |
+| The first action of a session that uses a regular expression | 1 lookup of the `Mborobak` functions | 1 `CREATE FUNCTION` per function missing in the namespace, before the query |
 | `createDataFrame()` | 0 | 2 statements at the call: `CREATE GLOBAL TEMPORARY TABLE`, and an `INSERT` of all rows (none for empty data) |
 | `write.saveAsTable()`, `write.insertInto()` | 1 existence check, plus 1 column lookup for `append` and `insertInto` | 0 to 4 statements, in one transaction: `CREATE TABLE`, `INSERT`, `DROP TABLE`, `ALTER TABLE` or `DELETE` (compiler spec §9.7) |
 

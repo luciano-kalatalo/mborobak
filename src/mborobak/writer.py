@@ -327,6 +327,10 @@ class _Write:
         if not isinstance(plan, P.Project):
             plan = P.Project(plan, tuple((a, E.AttrRef(a)) for a in plan.output))
         stmt = self.session._compile(plan)
+        if stmt.functions:
+            from .irisfuncs import ensure
+
+            ensure(self.session, stmt.functions, self.op)  # DDL: before the write's transaction
         text = f"INSERT INTO {ref.quoted()} ({', '.join(quote(n) for n in names)})\n{stmt.body}"
         if stmt.cte:
             text = f"{stmt.cte}\n{text}"

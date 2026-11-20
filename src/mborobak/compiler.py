@@ -52,6 +52,7 @@ class SqlStatement:
     translations: list[str]
     fingerprint: str
     cte: str = ""  # the WITH clause at the front of ``text`` (from sql() sources); INSERT goes after it
+    functions: frozenset = frozenset()  # Mborobak's IRIS SQL functions the text calls (§7.16)
 
     @property
     def body(self) -> str:
@@ -105,6 +106,7 @@ class Compiler:
         self.translations: list[str] = []
         self._alias_counter = 0
         self.ctes: list[tuple[str, tuple]] = []  # (WITH text, its parameters) from sql() sources
+        self.functions: set[str] = set()  # irisfuncs the statement calls
 
     # ---------------------------------------------------------------- D10 collation
     def needs_exact(self, expr: E.Expr) -> bool:
@@ -535,7 +537,7 @@ class Compiler:
                 f"{self.options.max_parameters} (IRIS fails near 999). Shorten long isin() lists.")
         fingerprint = hashlib.sha256(text.encode()).hexdigest()[:16]
         return SqlStatement(text, renderer.params, schema, list(self.translations), fingerprint,
-                            self.ctes[0][0] if self.ctes else "")
+                            self.ctes[0][0] if self.ctes else "", frozenset(self.functions))
 
 
 # --------------------------------------------------------------------------- constant casts

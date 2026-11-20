@@ -128,7 +128,7 @@ def test_parse_error_is_an_analysis_error():
         parse_expression("a + )")
 
 
-@pytest.mark.parametrize("text", ["s RLIKE 'a'", "s REGEXP 'a'", "regexp_replace(s, 'a', 'b')", "s ILIKE 'A%'",
+@pytest.mark.parametrize("text", ["split(s, 'a')", "regexp_extract_all(s, 'a')", "s ILIKE 'A%'",
                                   "i DIV 2", "i & 1", "~i", "INTERVAL 1 DAY", "i IN (SELECT 1)", "sum(DISTINCT i)",
                                   "no_such_function(i)", "CAST(i AS SMALLINT)", "1S"])
 def test_unsupported_constructs(df, text):

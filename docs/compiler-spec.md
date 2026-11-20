@@ -401,7 +401,7 @@ Literal typing is Spark SQL's: integers are `int`, then `bigint`, then `decimal`
 
 Where Spark names a SQL expression differently from its Column-API twin, the parser keeps Spark's name with an internal alias that only sets the default column name: `x BETWEEN a AND b` is `between(x, a, b)` (compiled as `x >= a AND x <= b`, so strings compare by code point), `if(c, a, b)` is `(IF(c, a, b))` (a `CASE`), one-argument `log(x)` is `LOG(E(), x)`, `pow` keeps `pow`, `+x` is `(+ x)`, and a window frame written `1 PRECEDING` keeps those words. `a != b` and `a <> b` are `NOT (a = b)`, as in Spark.
 
-Not supported, each with `UnsupportedOperationError`: `RLIKE`/`REGEXP` and the `regexp_*` functions (IRIS SQL has no regular expressions), `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, `sum(DISTINCT …)`, smallint/tinyint/float. Malformed text raises `ParseError`, an `AnalysisError`, at the call, with the position.
+`RLIKE` and `REGEXP` parse to `rlike` (§7.16), and the `regexp_*` functions are called by name (`regexp_extract(s, p)` with Spark SQL's default group 1). Not supported, each with `UnsupportedOperationError`: `split` and `regexp_extract_all` (arrays), `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, `sum(DISTINCT …)`, smallint/tinyint/float. Malformed text raises `ParseError`, an `AnalysisError`, at the call, with the position.
 
 ### 7.14 Comparisons with NaN
 
@@ -440,6 +440,30 @@ Each side is a `FromItem` as in other joins (the table itself, or a subquery whe
 IRIS evaluates the condition correctly, NaN and NULL keys included (probe 2026-11-20), with one exception from the `-1E19` family (§7.9, matrix FP-10): when the condition on a `DOUBLE` key is more than a bare `=` (the NaN form of §7.14 is), a NULL outer key matches a right row whose value is `-1E19`, even with an explicit `IS NULL` guard. Values other than `-1E19` are not affected.
 
 `unionByName` needs no compiler support: the DataFrame layer reorders the right side by name, adds `CAST(NULL AS type)` columns for `allowMissingColumns`, and builds a `union` (§9.1).
+
+### 7.16 Regular expressions (release 0.3)
+
+IRIS SQL has no regular expressions: `$MATCH` and `$LOCATE` are rejected in SQL, `%MATCHES` is a wildcard syntax (`*`, `?`, `[0-9]`; `.` is a literal dot), and `%PATTERN` uses IRIS's pattern codes. ObjectScript has ICU's regular expressions, and `CREATE FUNCTION … LANGUAGE OBJECTSCRIPT { … }` makes them callable from SQL with plain DDL, without a class file (probe 2026-11-20, §12.8). So Mborobak keeps six small functions in the schema `Mborobak` (`src/mborobak/irisfuncs.py`):
+
+| Spark | IRIS function | Body |
+|-------|---------------|------|
+| `rlike`, `regexp`, `regexp_like`, `RLIKE`, `REGEXP` | `RegexpLike1(s, p)` | `$LOCATE(s, p) > 0`, as fast as `LIKE` |
+| `regexp_replace(s, p, r)` | `RegexpReplace1(s, p, r)` | `%Regex.Matcher.ReplaceAll(r)` |
+| `regexp_extract(s, p, i)` | `RegexpExtract1(s, p, i)` | `Locate()`, then `Group(i)`; `ztrap "MBGROUP"` for a group beyond `GroupCount` |
+| `regexp_count`, `regexp_substr`, `regexp_instr` | `RegexpCount1`, `RegexpSubstr1`, `RegexpInstr1` | `Locate()` in a loop; `Group(0)`; `Start` |
+
+The bodies follow Spark's results:
+
+- **NULL and `''`.** A SQL NULL arrives as `""` and an empty string as `$c(0)`. A NULL argument returns `""` (NULL). Empty results return `$c(0)`, so `regexp_extract` without a match is `''` as in Spark, while `regexp_substr` without a match returns NULL.
+- **Empty patterns.** ICU rejects `''`, which Java matches everywhere; it becomes `(?:)`.
+- **Compiled patterns** are cached per connection in the process-private `%mborobakRx`, keyed by the pattern (by a hash beyond 200 characters), and cleared after 200 patterns. Compiling a matcher for every row made a filter over 100,000 rows take 0.9 s; with the cache it takes 0.06 s.
+- **Each call is wrapped:** `CASE WHEN 1 = 0 THEN NULL ELSE "Mborobak"."RegexpLike1"(s, ?) END`. IRIS evaluates `NOT (f(…) = 1)` as **true** when a user function returns NULL, and the same for `>` and string comparisons, so `~rlike` kept NULL rows. Inside a `CASE`, the NULL is a NULL (probe 2026-11-20). `rlike` is a predicate: `<call> = 1`, and a boolean value through §7.8.
+
+**Installation on first use.** The compiler records the functions a statement calls (`SqlStatement.functions`). Before running it (in `_execute`, and in a write before its transaction, §9.7), the session looks up the missing ones in `INFORMATION_SCHEMA.ROUTINES` and creates them; a session does this once per function. When creation fails (no `CREATE FUNCTION` permission), the error names the function and suggests `session.installFunctions()`, which an administrator runs once. Function names carry a version (`…1`), so a later Mborobak that changes a body creates `…2` instead of changing what an older Mborobak calls.
+
+**Errors.** IRIS reports a failed function as SQLCODE -149 with the ObjectScript error: `<REGULAR EXPRESSION>` becomes "invalid regular expression", `<ZMBGROUP>` "the group index is beyond the pattern's groups", both `MborobakExecutionError` at the action, where Spark also fails at run time.
+
+**Dialect.** ICU's syntax is Java's for classes, quantifiers, groups, anchors, lookaround, flags such as `(?i)`, and `$1` and `\$` in replacements. Its `\w`, `\d`, `\b` and `\p{Alpha}` are Unicode-aware where Java's are ASCII only: `regexp_replace('é1', '\\w', '_')` gives `'__'` here and `'é_'` in Spark (matrix REGEX-07).
 
 ## 8. Optional rewrites
 
@@ -815,6 +839,23 @@ Script [`probes/nan_comparison_probe.py`](../probes/nan_comparison_probe.py), ra
 | `a op ?` with a NaN parameter, for `=`, `<>`, `<`, `<=`, `>`, `>=` | NaN `a`: false, true, false, true, false, true; `1.0`: false, true, false, true, false, true |
 | `a IN (?nan, ?1.0)` in `WHERE`; `CASE WHEN a IN (?nan)` | Matches NaN and 1.0; 0 for NaN |
 | The fixes: `(x.a = y.b OR CASE WHEN x.a <> x.a AND y.b <> y.b …)` as a join condition; `(a > ? OR CASE WHEN a <> a …)` | NaN matches NaN only; NaN and 1.0 for `> 0` |
+
+### 12.8 Probe 2026-11-20: regular expressions
+
+Script [`probes/regex_probe.py`](../probes/regex_probe.py), raw output [`probes/results-2026-11-20-regex-iris-2026.2.json`](../probes/results-2026-11-20-regex-iris-2026.2.json), IRIS 2026.2. Prompted by a Developer Community thread (2017) listing `%MATCHES`, `%PATTERN` and a `$MATCH` class method.
+
+| Check | Result |
+|-------|--------|
+| `SELECT $MATCH('abc', 'a.c')`, `$LOCATE(…)` | SQLCODE -12: not SQL functions |
+| `s %MATCHES 'a*'`, `'a[0-9]c'`, `'a.c'` | Wildcards: `abc`, `a1c`; `a1c`; nothing (`.` is literal) |
+| `CREATE FUNCTION … LANGUAGE OBJECTSCRIPT { … }` with `$LOCATE`, `%Regex.Matcher` | Created and callable from SQL; also `LANGUAGE PYTHON` |
+| Arguments | NULL arrives as `""`, `''` as `$c(0)`; returning `""` gives NULL |
+| `(?i)abc`; replacement `$3/$2/$1`; `x*` replaced in `abc`; `\$1` | Case-insensitive match; `31/01/2026`; `-a-b-c-`; `a$1c`, all as in Java |
+| `\w` in `é1`; `\p{Alpha}` on `é` | `__`; a match (Java: `é_`, no match) |
+| Empty pattern; `(?:)` | `$LOCATE` finds nothing; matches |
+| Invalid pattern `(` | SQLCODE -149, `<REGULAR EXPRESSION>` in the message |
+| `WHERE NOT (f(s) = 1)` with `f(NULL)` NULL; the same inside `CASE WHEN 1 = 0 THEN NULL ELSE … END` | NULL row kept; NULL row dropped |
+| 100,000 rows: a new `%Regex.Matcher` per row, a cached matcher, `$LOCATE`, `LIKE` | 0.90 s, 0.06 s, 0.06 s, 0.05 s |
 
 ## 13. Open questions
 

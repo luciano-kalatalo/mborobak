@@ -163,7 +163,8 @@ class MborobakSession:
         self._catalog = catalog or Catalog(self._executor.lookup)
         self.catalog = _CatalogAPI(self)
         self._sql_cache: OrderedDict = OrderedDict()
-        self._temp_tables: list = []  # GLOBAL TEMPORARY tables of createDataFrame(), dropped by stop()
+        self._temp_tables: list = []
+        self._functions_ready: set[str] = set()  # irisfuncs known to exist (compiler spec §7.16)  # GLOBAL TEMPORARY tables of createDataFrame(), dropped by stop()
         self.lastExecution: ExecutionMetrics | None = None
         self.irisVersion: str | None = None
 
@@ -312,6 +313,10 @@ class MborobakSession:
         stmt, cache_hit = self._compile_cached(plan)
         t1 = time.perf_counter()
         candidates = _error_candidates(plan)
+        if stmt.functions:
+            from .irisfuncs import ensure
+
+            ensure(self, stmt.functions, operation)
         rows, server_ms, fetch_ms = self._executor.run(stmt.text, stmt.params, operation, candidates)
         t2 = time.perf_counter()
         try:
@@ -326,6 +331,17 @@ class MborobakSession:
             schema_lookups=self._counter.schema_lookups - lookups_before, rows=len(rows),
             python_ms=(t1 - t0) * 1000, server_ms=server_ms, fetch_ms=fetch_ms, cache_hit=cache_hit)
         return tuple(stmt.schema.fieldNames()), converted
+
+    def installFunctions(self) -> list[str]:  # noqa: N802
+        """Create the SQL functions Mborobak uses for regular expressions (schema ``Mborobak``), for an
+        administrator to run once when users may not create functions themselves. Returns their names."""
+        from .irisfuncs import FUNCTIONS, SCHEMA, ensure
+
+        self._check_open()
+        if self._executor is None:
+            raise MborobakConnectionError("this session has no IRIS connection")
+        ensure(self, set(FUNCTIONS), "installFunctions")
+        return [f"{SCHEMA}.{name}" for name in sorted(FUNCTIONS)]
 
     # ---------------------------------------------------------------- lifecycle
     def stop(self) -> None:

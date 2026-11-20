@@ -286,8 +286,8 @@ class Parser:
                 result = E.In(left, tuple(values))
             elif self.take_kw("LIKE"):
                 result = E.Like(left, self.value())
-            elif self.kw("RLIKE", "REGEXP"):
-                raise UnsupportedOperationError("RLIKE/REGEXP: IRIS SQL has no regular expressions (planned for 0.3)")
+            elif self.take_kw("RLIKE", "REGEXP"):  # Spark names both RLIKE(s, p)
+                result = E.Func("rlike", (left, self.value()))
             elif self.kw("ILIKE"):
                 raise UnsupportedOperationError("ILIKE is not supported; use lower(x) LIKE …")
             elif not negated and self.take_kw("IS"):
@@ -566,7 +566,7 @@ def sql_type(text: str) -> DataType:
 
 # Positional arguments that PySpark's functions take as Python constants, not Columns.
 _CONSTANT_ARGS = {"ntile": (0,), "lag": (1, 2), "lead": (1, 2), "months_between": (2,), "first": (1,),
-                  "last": (1,)}
+                  "last": (1,), "regexp_extract": (1, 2), "regexp_instr": (2,)}
 _SQL_ONLY = {"col", "column", "lit", "when", "expr", "asc", "desc", "asc_nulls_first", "asc_nulls_last",
              "desc_nulls_first", "desc_nulls_last", "count_distinct"}
 
@@ -601,8 +601,10 @@ def build_call(name: str, args: list[E.Expr], distinct: bool, parser: Parser, to
     if name in ("substring", "substr") and len(args) == 2:
         return F.substr(Column(args[0]), Column(args[1]))._expr if name == "substr" else \
             E.Func("substring", (args[0], args[1], E.Literal(2147483647, IntegerType())))
-    if name in ("rlike", "regexp", "regexp_like", "regexp_replace", "regexp_extract", "split"):
-        raise UnsupportedOperationError(f"{name}(): IRIS SQL has no regular expressions (planned for 0.3)")
+    if name in ("split", "regexp_extract_all"):
+        raise UnsupportedOperationError(f"{name}() returns an array, which Mborobak does not support")
+    if name == "regexp_extract" and len(args) == 2:
+        args = [*args, E.Literal(1, IntegerType())]  # Spark SQL's default group
     fn = getattr(F, name, None) if name not in _SQL_ONLY and not name.startswith("_") else None
     if fn is None or not callable(fn) or name not in F.__all__:
         raise UnsupportedOperationError(f"function {name}() is not supported in SQL expressions")

@@ -84,3 +84,18 @@ def test_named_parameters(session):
 
 def test_read_table(session):
     assert session.read.table("MborobakTest.Sales").count() == session.table("MborobakTest.Sales").count() == 9
+
+
+def test_regex_functions_are_installed_on_first_use(session, raw_connection):
+    from mborobak import MborobakSession
+
+    cur = raw_connection.cursor()
+    cur.execute("SELECT ROUTINE_NAME FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = 'Mborobak'")
+    for (name,) in cur.fetchall():  # start without them
+        cur.execute(f'DROP FUNCTION "Mborobak"."{name}"')
+    df = session.table("MborobakTest.Words").filter(F.col("w").rlike("^[a-z]+$"))
+    assert sorted(r.id for r in df.collect()) == [1, 4, 11]  # apple, banana, abc
+    assert session._functions_ready == {"RegexpLike1"}
+    fresh = MborobakSession.builder.connection(raw_connection).create()  # finds it, creates nothing
+    assert fresh.table("MborobakTest.Words").filter(F.col("w").rlike("an")).count() == 2
+    assert len(fresh.installFunctions()) == 6

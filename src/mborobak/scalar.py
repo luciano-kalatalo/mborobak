@@ -598,3 +598,51 @@ _register()
 
 
 from . import dates as _dates  # noqa: E402,F401 - registers the date and time functions
+
+
+# --------------------------------------------------------------------------- regular expressions (§7.16)
+
+def _t_regex(result: DataType):
+    def typer(e, args, op):
+        for t, _ in args[:2]:
+            _string(e.name, t, op)
+        if e.name == "regexp_replace":
+            _string(e.name, args[2][0], op)
+        return result, True  # NULL for a NULL argument; regexp_substr also without a match
+
+    return typer
+
+
+def _r_regex(function: str, predicate: bool = False):
+    def render(r, e):
+        from . import irisfuncs
+
+        r.c.functions.add(function)
+        used = e.args[:2] if e.name == "regexp_instr" else e.args  # idx: only 0, the whole match
+        text = irisfuncs.call(function, *(r.value(a) for a in used))  # rendered once each: parameters in order
+        return f"{text} = 1" if predicate else text
+
+    return render
+
+
+def _n_with(*defaults: str):
+    """Spark's name with the trailing default arguments it shows: regexp_replace(s, p, r, 1)."""
+    def namer(e, expr_name):
+        parts = [expr_name(a) for a in e.args] + list(defaults)
+        return f"{e.name}({', '.join(parts)})"
+
+    return namer
+
+
+def _register_regex(R: dict) -> None:
+    for key, label in (("rlike", "RLIKE"), ("regexp", "REGEXP"), ("regexp_like", "REGEXP_LIKE")):
+        R[key] = Spec(_t_regex(BooleanType()), _r_regex("RegexpLike1", predicate=True), label=label,
+                      predicate=True)
+    R["regexp_replace"] = Spec(_t_regex(StringType()), _r_regex("RegexpReplace1"), namer=_n_with("1"))
+    R["regexp_extract"] = Spec(_t_regex(StringType()), _r_regex("RegexpExtract1"))
+    R["regexp_count"] = Spec(_t_regex(IntegerType()), _r_regex("RegexpCount1"))
+    R["regexp_substr"] = Spec(_t_regex(StringType()), _r_regex("RegexpSubstr1"))
+    R["regexp_instr"] = Spec(_t_regex(IntegerType()), _r_regex("RegexpInstr1"))
+
+
+_register_regex(REGISTRY)

@@ -1,6 +1,6 @@
 # Compatibility Matrix
 
-Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.8 · 2026-11-20
+Scientificloud · Mborobak · Control document 3 of 3 · Draft 0.9 · 2026-11-20
 
 Lists, behavior by behavior, how Mborobak on IRIS compares with the reference, **PySpark 4.3.x with ANSI mode on** (D9), and what Mborobak does about each difference. Implements scope §8.2. The other two control documents are the [compiler specification](compiler-spec.md) (how SQL is generated) and the [API contract](api-contract.md) (the public API).
 
@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-k` | Regular-expression probe 2026-11-20 ([`probes/regex_probe.py`](../probes/regex_probe.py)), [compiler spec](compiler-spec.md) §12.8 |
 | `P-j` | Temporary-table probe 2026-11-20 ([`probes/temp_table_probe.py`](../probes/temp_table_probe.py)), [compiler spec](compiler-spec.md) §9.8 |
 | `P-i` | NaN comparison probe 2026-11-20 ([`probes/nan_comparison_probe.py`](../probes/nan_comparison_probe.py)), [compiler spec](compiler-spec.md) §12.7 |
 | `P-h` | Write probe 2026-11-20 ([`probes/write_probe.py`](../probes/write_probe.py)), [compiler spec](compiler-spec.md) §12.6 |
@@ -305,7 +306,7 @@ The dataset `dates` (§3.2) has a leap day, month ends, the year boundary where 
 | EXPR-06 | Windows: `… OVER (PARTITION BY … ORDER BY … [ASC\|DESC] [NULLS FIRST\|LAST] [ROWS\|RANGE BETWEEN …])` | — | As §2.13 | Same | diff |
 | EXPR-07 | `filter("…")`, `where("…")` | — | Parsed condition | Same | diff |
 | EXPR-08 | `selectExpr("*", "x AS y", "x y", "`a b`")`, `F.expr("x AS y")` | — | Aliases and `*` | Same | diff |
-| EXPR-09 | `RLIKE`/`REGEXP`, `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, `sum(DISTINCT …)`, `count(a, b)`, smallint/tinyint/float literals and types | Supported | `UnsupportedOperationError` (or a parse error for `count(a, b)`) naming the construct | Unsupported | diff |
+| EXPR-09 | `ILIKE`, `DIV`, bitwise operators, subqueries, `INTERVAL`, `sum(DISTINCT …)`, `count(a, b)`, smallint/tinyint/float literals and types | Supported | `UnsupportedOperationError` (or a parse error for `count(a, b)`) naming the construct | Unsupported | diff |
 | EXPR-10 | Malformed text | `ParseException` | `ParseError` (an `AnalysisError`) with the position, at the call | Same | diff |
 
 ### 2.16 Writing tables (release 0.2.x)
@@ -343,6 +344,22 @@ The dataset `dates` (§3.2) has a leap day, month ends, the year boundary where 
 | CDF-08 | Missing values (`None`, NaN) in a pandas string column | `'nan'` with pandas 3 (PySpark 4.3 warns it doesn't fully support pandas 3) | — | NULL | Known difference: Mborobak keeps the missing value | diff |
 | CDF-09 | Column names IRIS tables can't hold (`a.b`, `c,d`, `a` and `A`) | Allowed | -1, -306 as column names | Allowed: the table's columns are `c1`, `c2`, …, renamed in the query | Same | P-j / diff |
 | CDF-10 | `Decimal` values with more than 19 digits before the point (PySpark infers `decimal(38,18)`) | Kept | `NUMERIC` holds at most 19 integer digits (WRITE-07) | `MborobakExecutionError` when loading | Known difference: an IRIS limit | P-h |
+
+### 2.18 Regular expressions (release 0.3)
+
+`rlike`, `regexp_replace`, `regexp_extract`, `regexp_count`, `regexp_substr`, `regexp_instr` and SQL's `RLIKE`/`REGEXP` run in ICU-regex SQL functions Mborobak creates in IRIS on first use ([compiler spec](compiler-spec.md) §7.16).
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| REGEX-01 | `rlike`, `regexp`, `regexp_like`: a match anywhere; anchors, `(?i)`, an empty pattern, a column pattern; NULLs; `~rlike` in a filter | Java regex | No regex in SQL; `NOT (f() = 1)` true for a NULL function result | `$LOCATE` in `Mborobak.RegexpLike1`, wrapped in `CASE` | Emulated (spec §7.16) | P-k / diff |
+| REGEX-02 | `regexp_replace`: groups (`$3/$2/$1`), empty matches, `\$`, column pattern, `(?i)` | Java `replaceAll` | — | `%Regex.Matcher.ReplaceAll` | Emulated | P-k / diff |
+| REGEX-03 | `regexp_extract`: group, whole match, a group that took no part, no match | `''` for the last two | — | Same | Emulated | diff |
+| REGEX-04 | `regexp_count`, `regexp_substr` (NULL without a match), `regexp_instr` (1-based, 0 without a match) | As described | — | Same | Emulated | diff |
+| REGEX-05 | SQL text: `RLIKE`, `REGEXP`, `NOT RLIKE`, `regexp_extract(s, p)` (group 1) | As described | — | Same names (`RLIKE(s, p)` for both) | Same | diff |
+| REGEX-06 | Invalid pattern; group index beyond the pattern's groups | Error at run time | -149 `<REGULAR EXPRESSION>` | `MborobakExecutionError` | Same | P-k / diff |
+| REGEX-07 | `\w`, `\d`, `\b`, `\p{Alpha}` on non-ASCII letters (`é`) | ASCII only | ICU: Unicode | Passed through | Known difference: ICU's classes are Unicode-aware | P-k / diff |
+| REGEX-08 | `split`, `regexp_extract_all` | Arrays | — | `UnsupportedOperationError`: no array type | Unsupported | doc |
+| REGEX-09 | Functions created on first use (`CREATE FUNCTION` permission), or by `session.installFunctions()` | Nothing to install | — | One lookup per session, then one `CREATE FUNCTION` per missing function | Mborobak only | P-k |
 
 ## 3. Differential test suite
 
@@ -390,7 +407,8 @@ For the README and the docs site, the P0 known differences fit in one short list
 - `like` has no escape character (STR-14).
 - Adding `+∞` and `-∞` raises an error instead of giving NaN (FP-12); `pow` overflow raises an error instead of giving infinity (FUN-24); integer overflow in `abs` and `round` is not detected (FUN-25).
 - `initcap` also starts words after tabs (FUN-22); `upper('ß')` stays `'ß'` (FUN-23).
-- SQL expression strings don't support regular expressions (`RLIKE`), `ILIKE`, `DIV`, bitwise operators or subqueries (EXPR-09).
+- SQL expression strings don't support `ILIKE`, `DIV`, bitwise operators or subqueries (EXPR-09).
+- Regular expressions use ICU's syntax: `\w`, `\d` and `\p{Alpha}` also match non-ASCII letters (REGEX-07); `split` and `regexp_extract_all` are not supported (REGEX-08). Their SQL functions are created in the schema `Mborobak` on first use (REGEX-09).
 - `rangeBetween` with value offsets is not supported, because IRIS has no `RANGE` frames (WIN-13); `first`/`last` with `ignorenulls=True` neither (WIN-15).
 - Casting `double` and `decimal` values to string gives IRIS's text, not Spark's (CAST-12, CAST-13).
 - `union` is stricter about mixing types (UNI-03).

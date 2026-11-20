@@ -575,3 +575,56 @@ def expr(str: str) -> Column:  # noqa: A002 - PySpark's parameter name
 
 
 __all__ += ["expr"]
+
+
+# regular expressions (ICU, through SQL functions Mborobak creates in IRIS; compiler spec §7.16)
+
+def rlike(str: Column | str, regexp: Column | str) -> Column:  # noqa: A002
+    """``str`` has a match of ``regexp`` anywhere (Java/ICU regular expressions)."""
+    return _f("rlike", _col(str), _col(regexp))
+
+
+def regexp(str: Column | str, regexp: Column | str) -> Column:  # noqa: A002, F811
+    return _f("regexp", _col(str), _col(regexp))
+
+
+def regexp_like(str: Column | str, regexp: Column | str) -> Column:  # noqa: A002
+    return _f("regexp_like", _col(str), _col(regexp))
+
+
+def regexp_replace(string: Column | str, pattern: Column | str, replacement: Column | str) -> Column:
+    """Every match of ``pattern`` replaced; ``$1`` in ``replacement`` is the first group. A ``str`` pattern or
+    replacement is the text itself, not a column name, as in PySpark."""
+    pat = pattern._expr if isinstance(pattern, Column) else _str(pattern, "regexp_replace", "pattern")
+    rep = replacement._expr if isinstance(replacement, Column) else _str(replacement, "regexp_replace",
+                                                                          "replacement")
+    return _f("regexp_replace", _col(string), pat, rep)
+
+
+def regexp_extract(str: Column | str, pattern: str, idx: int) -> Column:  # noqa: A002
+    """Group ``idx`` of the first match of ``pattern``; '' when there is none."""
+    return _f("regexp_extract", _col(str), _str(pattern, "regexp_extract", "pattern"),
+              _int(idx, "regexp_extract", "group index"))
+
+
+def regexp_count(str: Column | str, regexp: Column | str) -> Column:  # noqa: A002
+    return _f("regexp_count", _col(str), _col(regexp))
+
+
+def regexp_substr(str: Column | str, regexp: Column | str) -> Column:  # noqa: A002
+    """The first match, or NULL."""
+    return _f("regexp_substr", _col(str), _col(regexp))
+
+
+def regexp_instr(str: Column | str, regexp: Column | str, idx: int | Column | None = None) -> Column:  # noqa: A002
+    """The 1-based position of the first match, or 0."""
+    index = _int(0 if idx is None else idx, "regexp_instr", "group index")
+    if index.value != 0:
+        from ..errors import UnsupportedOperationError
+
+        raise UnsupportedOperationError("regexp_instr() supports idx=0 (the whole match) only")
+    return _f("regexp_instr", _col(str), _col(regexp), index)
+
+
+__all__ += ["rlike", "regexp", "regexp_like", "regexp_replace", "regexp_extract", "regexp_count",
+            "regexp_substr", "regexp_instr"]

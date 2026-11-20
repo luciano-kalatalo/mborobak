@@ -61,6 +61,10 @@ _BAD_DATETIME = re.compile(r"input to (SQL function )?TO_(DATE|TIMESTAMP)\(\)|to
                            r"totimestamp\+\d+\^%qarfunc", re.I)
 
 
+def first_line_of(text: str) -> str:
+    return text.splitlines()[0] if text else ""
+
+
 def map_error(exc: Exception, sql: str, operation: str | None, candidates: list[str]) -> Exception:
     text = str(exc)
     m = _SQLCODE.search(text)
@@ -76,6 +80,14 @@ def map_error(exc: Exception, sql: str, operation: str | None, candidates: list[
         return MborobakExecutionError("a value does not fit its column in the target table (a string longer than "
                                       "the column's length, or a number beyond its precision)" + hint,
                                       operation=operation, **details)
+    if sqlcode == -149:  # an SQL function raised (§7.16)
+        if "<REGULAR EXPRESSION>" in text:
+            message = "invalid regular expression (IRIS uses ICU's syntax, close to Java's)"
+        elif "<ZMBGROUP>" in text:
+            message = "regexp_extract(): the group index is beyond the pattern's groups"
+        else:
+            message = f"an SQL function failed: {first_line_of(text)}"
+        return MborobakExecutionError(message + hint, operation=operation, **details)
     if sqlcode == -108:
         return MborobakExecutionError("NULL value for a NOT NULL column of the target table" + hint,
                                       operation=operation, **details)

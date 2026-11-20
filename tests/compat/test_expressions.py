@@ -87,11 +87,11 @@ def test_EXPR_09_unsupported_constructs(pair):
     from mborobak.sql import functions as MF
 
     df = pair.mb("funcs")
-    for text in ("s RLIKE '^a'", "s REGEXP 'a'", "regexp_replace(s, 'a', 'b')", "s ILIKE 'A%'", "i DIV 2", "i & 1",
+    for text in ("split(s, 'a')", "s ILIKE 'A%'", "i DIV 2", "i & 1",
                  "INTERVAL 1 DAY"):
         with pytest.raises(UnsupportedOperationError):
             df.selectExpr(text)
-    pair.sp("funcs").selectExpr("s RLIKE '^a'").collect()  # Spark has them
+    pair.sp("funcs").selectExpr("split(s, 'a')").collect()  # Spark has them
     with pytest.raises(UnsupportedOperationError):
         df.select(MF.expr("i IN (SELECT 1)"))
 

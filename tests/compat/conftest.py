@@ -117,6 +117,13 @@ DATASETS: dict[str, tuple[str, str, list[tuple]]] = {
              "31/12/1999 18:20", 2),
         ],
     ),
+    "regex": (
+        "id INT, s VARCHAR(40), p VARCHAR(20)",
+        "id int, s string, p string",
+        [(1, "abc", "b"), (2, "ABC", "^A"), (3, "a1c", "[0-9]"), (4, "foo123bar45", "[0-9]+"), (5, None, "a"),
+         (6, "", ""), (7, "2026-01-31", None), (8, "Hello World", "o W"), (9, "a.b|c $x", "\\."),
+         (10, "tab\there", "\\s")],
+    ),
     "times": (
         "id INT, dt DATE, ts TIMESTAMP",
         "id int, dt date, ts timestamp_ntz",

@@ -143,6 +143,12 @@ class Column:
             raise TypeError("like() takes a string pattern")
         return Column(E.Like(self._expr, E.Literal(pattern, StringType())))
 
+    def rlike(self, other: str) -> "Column":
+        """A match of the regular expression ``other`` anywhere in the string (compiler spec §7.16)."""
+        if not isinstance(other, str):
+            raise TypeError("rlike() takes a string pattern")
+        return Column(E.Func("rlike", (self._expr, E.Literal(other, StringType()))))
+
     def between(self, lowerBound: Any, upperBound: Any) -> "Column":  # noqa: N803
         return (self >= lowerBound) & (self <= upperBound)
 

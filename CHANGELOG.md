@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Regular expressions: `Column.rlike`, `rlike`, `regexp`, `regexp_like`, `regexp_replace`, `regexp_extract`, `regexp_count`, `regexp_substr`, `regexp_instr`, and `RLIKE`/`REGEXP` in SQL expression strings, with Spark's names, types and results. IRIS SQL has no regular expressions; Mborobak creates small ICU-regex SQL functions in the schema `Mborobak` the first time a session needs one (needs `CREATE FUNCTION` permission; `session.installFunctions()` lets an administrator do it once). ICU's `\w`, `\d` and `\p{…}` are Unicode-aware where Java's are ASCII (compiler spec §7.16, matrix §2.18).
+
 ## 0.2.2 (2026-11-20)
 
 The rest of tier 2 of the [POC readiness plan](docs/poc-readiness-plan.md): `createDataFrame`, semi and anti joins, `unionByName`, `spark.read.table` and named `sql()` parameters. On the public Databricks notebooks, 94% of the PySpark calls that matter in a POC are now supported (93% in 0.2.1); what remains is planned for 0.3.

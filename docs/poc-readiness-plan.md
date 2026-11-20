@@ -27,7 +27,7 @@ Script [`probes/function_probe.py`](../probes/function_probe.py), raw output [`p
 | Month end, parsing | `LAST_DAY`, `TO_DATE`, `TO_CHAR` of a date work | Direct for simple patterns; Spark's format letters (`yyyy-MM-dd`) must be translated to IRIS's (`YYYY-MM-DD`) |
 | Truncation | **No `DATE_TRUNC` or `TRUNC`** for dates | Emulate (`'month'` → first day from `YEAR`/`MONTH`, and so on) |
 | Timestamp formatting | **`TO_CHAR(ts, 'YYYY-MM-DD HH24:MI')` fails** (SQLCODE -400) | Needs more probing before `date_format` on timestamps can be offered |
-| Regular expressions | **No regex in IRIS SQL:** `$MATCH` is rejected in SQL; `%MATCHES` is IRIS's own pattern syntax, not regex | `rlike`, `regexp_replace`, `regexp_extract` can't be compiled to plain SQL; see tier 3 |
+| Regular expressions | **No regex in IRIS SQL:** `$MATCH` is rejected in SQL; `%MATCHES` is IRIS's own pattern syntax, not regex. But `CREATE FUNCTION … LANGUAGE OBJECTSCRIPT` reaches ICU's regex from SQL (probe 2026-11-20) | Done for 0.3: functions Mborobak creates on first use (compiler spec §7.16) |
 
 ## 3. Plan by tier
 
@@ -57,7 +57,7 @@ Script [`probes/function_probe.py`](../probes/function_probe.py), raw output [`p
 
 ### Tier 3: needs research (release 0.3)
 
-- **Regular expressions** (`rlike`, `regexp_replace`, `regexp_extract`). IRIS SQL has no regex functions. Options: an opt-in server-side SQL function (Embedded Python or ObjectScript `$MATCH`/`$LOCATE`), enabled by administrators like the columnar transfer (scope §13); or translating simple patterns to `LIKE`. Until then they raise a clear `UnsupportedOperationError`.
+- ~~**Regular expressions** (`rlike`, `regexp_replace`, `regexp_extract`). IRIS SQL has no regex functions.~~ Done: `CREATE FUNCTION … LANGUAGE OBJECTSCRIPT` with ICU's `$LOCATE` and `%Regex.Matcher`, created on first use (decided 2026-11-20, with `session.installFunctions()` for administrators), plus `regexp_count`, `regexp_substr`, `regexp_instr` (compiler spec §7.16, matrix §2.18).
 - **Spark SQL in `session.sql()`:** translating Spark's SQL dialect to IRIS SQL, beyond the expression subset of tier 1.
 - **Columnar result transfer** (already on the 0.3 roadmap).
 
@@ -108,3 +108,5 @@ With SQL-string expressions (step 5), tier 1 is complete: in-scope coverage toda
 With writing tables (step 7), in-scope coverage today is **93%** on the dbdemos set (80% of all calls) and **94%** on the sample. The dbdemos set now needs only tier 3 (`%sql` cells and regular expressions).
 
 With semi and anti joins, `unionByName`, `spark.read.table` and named `sql()` parameters, in-scope coverage today is **94%** on the dbdemos set (81% of all calls) and **97%** on the sample. In both, what remains is tier 3 (`%sql` cells, regular expressions) and two unscheduled functions (`rand`, `sha1`).
+
+With regular expressions (tier 3, first item), in-scope coverage today is **95%** on the dbdemos set (82% of all calls) and **99%** on the sample. What remains is Spark SQL in `%sql` cells and `spark.sql()`, and `rand` and `sha1`.

@@ -52,7 +52,7 @@ _PLANNED_FUNCTIONS = {
         to_date to_timestamp date_trunc trunc date_format
         row_number rank dense_rank percent_rank cume_dist ntile lag lead first last first_value
         last_value expr""",
-    "0.3": "rlike regexp regexp_like regexp_replace regexp_extract regexp_extract_all split",
+    "0.3": "regexp_extract_all split",
 }
 _OUT_OF_SCOPE_FUNCTIONS = {
     "udf": "Python UDFs run in Spark workers; server-side UDFs are 0.3 research",
@@ -267,7 +267,7 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
         if name in supported[FUNCTION]:
             return SUPPORTED, None, None
         if name in _PLANNED_FUNCTION_RELEASE:
-            note = "IRIS SQL has no regular expressions" if _PLANNED_FUNCTION_RELEASE[name] == "0.3" else None
+            note = "returns an array, which Mborobak has no type for" if _PLANNED_FUNCTION_RELEASE[name] == "0.3" else None
             return PLANNED, _PLANNED_FUNCTION_RELEASE[name], note
         if name in _OUT_OF_SCOPE_FUNCTIONS:
             return OUT_OF_SCOPE, None, _OUT_OF_SCOPE_FUNCTIONS[name]
