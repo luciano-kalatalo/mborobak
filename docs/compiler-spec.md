@@ -512,6 +512,22 @@ From the same notebook scan as §7.18. IRIS SQL has the trigonometry, so those c
 
 Python functions get a SQL NULL as `''` and an empty string as `chr(0)`, and a returned `''` becomes NULL, so their NULLs are handled in SQL before the call, and an empty result is returned as `chr(0)`. Function bodies avoid `?` and `:digit` outside quoted strings, which the driver reads as parameters.
 
+### 7.20 Random values and sampling (release 0.3.x)
+
+IRIS SQL has no `RAND` (§12.10), and a random number per call would not be enough: `randomSplit` runs one query per split, so each row needs the same value in every query, or the splits overlap and lose rows. Spark gets this from the seed and the row's position in its partition. Mborobak computes the value from the seed and the row's columns ([`randomness.py`](../src/mborobak/randomness.py)):
+
+```sql
+CAST(CRC32(MD5('42' || CHAR(1) || COALESCE(CAST(c1 AS VARCHAR(100)), CHAR(2)) || CHAR(1) || …)) / 4294967296.0 AS DOUBLE)
+```
+
+- `MD5` makes different seeds independent; `CRC32` of the row alone is linear, and two seeds' values were strongly related in the probe. `CRC32` then turns the hash into a 32-bit number. Both are native SQL functions. Strings enter as they are, other types as text, NULL as `CHAR(2)`.
+- Identical rows would get identical values: a sample would keep all copies or none, so `df.select("status").sample(0.2)` kept 25% instead of 20% in the probe. Unless the rows are known distinct, a `ROW_NUMBER() OVER (PARTITION BY every column)` numbers the copies (strings with `%EXACT`) and the number joins the hash. It costs about 3 s per million rows, against 0.55 s for the hash alone. Rows are known distinct after `distinct()`, `dropDuplicates()`, `groupBy()`, and over a table whose primary key columns are still in the output (read from `INFORMATION_SCHEMA.COLUMNS.PRIMARY_KEY`), through filters, sorts, renames and joins of such inputs.
+- Before compiling, `randomness.bind` replaces every `rand(seed)` and `randn(seed)` with `rand_row(seed, kind, columns…)` over the columns of the node's input. `randn` uses Box-Muller over two hashes with different salts. A `rand_row` is never NULL or NaN, so comparisons and sorts skip their NaN guards and use it once.
+- `rand()` without a seed draws a random long when the column is made, shown in its name as in Spark (`rand(-3012…)`), and fixed for that DataFrame.
+- `sample(fraction, seed)` is `filter(rand(seed) < fraction)`; `randomSplit(weights, seed)` is one filter `lo <= rand(seed) < hi` per normalized weight, the last bound 1.0; `sampleBy(col, fractions, seed)` is `rand(seed) < CASE WHEN col = k THEN f … ELSE 0 END`. `sample(withReplacement=True)` raises `UnsupportedOperationError`; `rand` in a join condition too.
+
+The values differ from Spark's for the same seed (matrix RAND-02); what the two share (types, names, fractions 0 and 1, every row in exactly one split, repeatability) is tested against PySpark.
+
 ## 8. Optional rewrites
 
 Each rewrite has a name, a precondition and a session switch (`optimizer.<name>`, default on). The test suite runs every test with all rewrites on and with all off and compares results (scope §6.10).
@@ -929,6 +945,22 @@ Script [`probes/transfer_probe.py`](../probes/transfer_probe.py), raw output [`p
 | ObjectScript `%SQL.Statement` iterating the query (no values read) | 1.89 s |
 | Embedded Python: `numpy`, `pyarrow`, `pandas`; `iris.sql.exec(q).dataframe()` | 2.5.4, missing, 3.1.1; 5.6 s, `amount` as `float64` |
 | Mborobak `toPandas()`, `collect()` (with §9.9) | 2.48 s, 2.60 s (before: 3.0 s, 3.5 s) |
+
+### 12.10 Probe 2026-11-21: random values
+
+Script [`probes/sampling_probe.py`](../probes/sampling_probe.py), raw output [`probes/results-2026-11-21-sampling-iris-2026.2.json`](../probes/results-2026-11-21-sampling-iris-2026.2.json), IRIS 2026.2, 1M rows of the benchmark's `Orders` (six columns, primary key `id`). `u` is the hash divided by 2³², filtered `u < 0.2`.
+
+| Check | Result |
+|-------|--------|
+| `RAND()`, `RAND(42)`, `RANDOM()` | Not found (SQLCODE -359) |
+| `CRC32`, `MD5`, `SHA1`, `SHA2` in SQL | Native; `CRC32(NULL)` is 0, `MD5(NULL)` the hash of `''` |
+| Plain filter (baseline) | 0.035 s |
+| `CRC32(row)`: time, rows kept, deciles | 0.21 s, 199,471, 99,582 to 100,426 per tenth |
+| `CRC32(row)`, seeds 42 and 43: both below 0.1, both below 0.5 | 2,905 (10,000 expected), 285,648 (250,000): related |
+| `CRC32(MD5(row))`: time, rows kept, deciles | 0.55 s, 200,218, 99,177 to 100,397 per tenth; the same rows twice |
+| `CRC32(MD5(row))`, seeds 42 and 43 | 9,986 and 249,792: independent |
+| With `ROW_NUMBER() OVER (PARTITION BY` the six columns`)`; `OVER ()`; partitioned by the `MD5` | 3.49 s; 3.43 s; 6.35 s |
+| `status` alone (5 values), without numbering; with it | 249,843 rows (all or none per value); 199,398 |
 
 ## 13. Open questions
 

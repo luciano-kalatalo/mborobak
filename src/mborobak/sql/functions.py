@@ -6,7 +6,7 @@ from typing import Any
 
 from .. import expressions as E
 from ..column import Column, literal, to_column_expr, to_expr
-from .types import DoubleType, NullType
+from .types import DoubleType, LongType, NullType
 
 __all__ = [
     "col",
@@ -837,3 +837,29 @@ def last_value(col: Column | str, ignoreNulls: Any = None) -> Column:  # noqa: N
 __all__ += ["md5", "sha1", "sha2", "crc32", "levenshtein", "sin", "cos", "tan", "asin", "acos", "atan", "cot",
             "atan2", "degrees", "radians", "pi", "dayname", "monthname", "conv", "parse_url", "to_utc_timestamp",
             "from_utc_timestamp", "first_value", "last_value"]
+
+
+def _random(name: str, seed: Any) -> Column:
+    from ..randomness import new_seed
+
+    if seed is None:
+        seed = new_seed()
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise TypeError(f"{name}() takes an integer seed, got {type(seed).__name__}")
+    if not -(2**63) <= seed < 2**63:
+        raise ValueError(f"{name}() seed {seed} is out of the long range")
+    return _f(name, E.Literal(seed, LongType()))
+
+
+def rand(seed: int | None = None) -> Column:
+    """A uniform random double in [0, 1), the same for a row every time the query runs (compiler spec §7.20).
+    The values differ from Spark's: Spark derives them from the row's position, Mborobak from its columns."""
+    return _random("rand", seed)
+
+
+def randn(seed: int | None = None) -> Column:
+    """A standard normal random double, the same for a row every time the query runs."""
+    return _random("randn", seed)
+
+
+__all__ += ["rand", "randn"]

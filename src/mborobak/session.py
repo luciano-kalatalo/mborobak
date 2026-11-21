@@ -269,7 +269,7 @@ class MborobakSession:
         op = f"table at {loc}" if loc else "table"
         info = self._catalog.lookup(tableName, op)
         attrs, unsupported = info.attributes()
-        return DataFrame(self, P.TableScan(info.table, attrs, unsupported))
+        return DataFrame(self, P.TableScan(info.table, attrs, unsupported, info.key(attrs)))
 
     def createDataFrame(self, data: Any, schema: Any = None, samplingRatio: float | None = None,  # noqa: N802, N803
                         verifySchema: bool = True):  # noqa: N803

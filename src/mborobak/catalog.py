@@ -23,7 +23,7 @@ from .sql.types import (
 DEFAULT_SCHEMA = "SQLUser"
 
 COLUMNS_SQL = """SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE, c.NUMERIC_PRECISION,
-       c.NUMERIC_SCALE, c.IS_NULLABLE, p.Parameters
+       c.NUMERIC_SCALE, c.IS_NULLABLE, p.Parameters, c.PRIMARY_KEY
 FROM INFORMATION_SCHEMA.COLUMNS c
 JOIN INFORMATION_SCHEMA.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
 LEFT JOIN %Dictionary.CompiledProperty p ON p.parent = t.CLASSNAME AND p.SqlFieldName = c.COLUMN_NAME
@@ -38,6 +38,7 @@ class CatalogColumn:
     dtype: DataType | None  # None: unsupported in P0
     nullable: bool
     collation: str | None
+    primary_key: bool = False
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,12 @@ class TableInfo:
             else:
                 attrs.append(E.Attribute(E.new_id(), c.name, c.dtype, c.nullable, c.collation))
         return tuple(attrs), tuple(unsupported)
+
+    def key(self, attrs: tuple[E.Attribute, ...]) -> tuple[int, ...]:
+        """Ids of the primary key's columns among ``attrs``; () without a key or if a key column is missing."""
+        names = [c.name for c in self.columns if c.primary_key]
+        ids = {a.name: a.id for a in attrs}
+        return tuple(ids[n] for n in names) if names and all(n in ids for n in names) else ()
 
 
 def map_type(data_type: str, precision, scale) -> DataType | None:
@@ -150,6 +157,7 @@ class Catalog:
                 dtype=map_type(r[3], r[4], r[5]),
                 nullable=str(r[6]).upper() != "NO",
                 collation=parse_collation(r[7]) if map_type(r[3], r[4], r[5]) == StringType() else None,
+                primary_key=len(r) > 8 and str(r[8]).upper() == "YES",
             )
             for r in rows
         )
@@ -174,7 +182,8 @@ class StaticCatalog(Catalog):
             ref = parse_table_name(name)
             info = TableInfo(ref, tuple(
                 CatalogColumn(c[0], c[1].simpleString(), c[1], c[2] if len(c) > 2 else True,
-                              c[3] if len(c) > 3 else ("SQLUPPER" if isinstance(c[1], StringType) else None))
+                              c[3] if len(c) > 3 else ("SQLUPPER" if isinstance(c[1], StringType) else None),
+                              len(c) > 4 and c[4])
                 for c in cols))
             self._cache[(ref.schema.upper(), ref.name.upper())] = info
 

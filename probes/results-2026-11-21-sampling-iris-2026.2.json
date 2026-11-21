@@ -1,0 +1,224 @@
+{
+ "meta.version": {
+  "result": "IRIS for UNIX (Ubuntu Server LTS for ARM64 Containers) 2026.2 (Build 221U) Fri Jun 26 2026 09:59:12 EDT"
+ },
+ "function.rand": {
+  "sql": "SELECT RAND()",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-359>:<SQL Function (function stored procedure) not found>]"
+ },
+ "function.rand_seed": {
+  "sql": "SELECT RAND(42)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-359>:<SQL Function (function stored procedure) not found>]"
+ },
+ "function.random": {
+  "sql": "SELECT RANDOM()",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-359>:<SQL Function (function stored procedure) not found>]"
+ },
+ "function.crc32": {
+  "sql": "SELECT CRC32('a')",
+  "status": "ok",
+  "result": [
+   [
+    3904355907
+   ]
+  ]
+ },
+ "function.crc32_null": {
+  "sql": "SELECT CRC32(NULL)",
+  "status": "ok",
+  "result": [
+   [
+    0
+   ]
+  ]
+ },
+ "function.crc32_utf8": {
+  "sql": "SELECT CRC32('\u00e9')",
+  "status": "ok",
+  "result": [
+   [
+    198489425
+   ]
+  ]
+ },
+ "function.md5": {
+  "sql": "SELECT MD5('a')",
+  "status": "ok",
+  "result": [
+   [
+    "0cc175b9c0f1b6a831c399e269772661"
+   ]
+  ]
+ },
+ "function.md5_null": {
+  "sql": "SELECT MD5(NULL)",
+  "status": "ok",
+  "result": [
+   [
+    "d41d8cd98f00b204e9800998ecf8427e"
+   ]
+  ]
+ },
+ "function.sha1": {
+  "sql": "SELECT SHA1('a')",
+  "status": "ok",
+  "result": [
+   [
+    "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8"
+   ]
+  ]
+ },
+ "function.sha2": {
+  "sql": "SELECT SHA2('a', 256)",
+  "status": "ok",
+  "result": [
+   [
+    "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
+   ]
+  ]
+ },
+ "function.cast_double_text": {
+  "sql": "SELECT CAST(CAST(0.1 AS DOUBLE) AS VARCHAR(60))",
+  "status": "ok",
+  "result": [
+   [
+    ".10000000000000000556"
+   ]
+  ]
+ },
+ "meta.rows": {
+  "result": 1000000
+ },
+ "load": {
+  "result": {
+   "insert_s": 11.07,
+   "index_and_tune_s": 2.15
+  }
+ },
+ "baseline.count_s": {
+  "result": 0.035
+ },
+ "crc32.filter_0.2": {
+  "result": {
+   "seconds": 0.212,
+   "rows": 199471,
+   "same_twice": true
+  }
+ },
+ "crc32.deciles": {
+  "result": [
+   [
+    "0",
+    99582
+   ],
+   [
+    "1",
+    99889
+   ],
+   [
+    "2",
+    100414
+   ],
+   [
+    "3",
+    99667
+   ],
+   [
+    "4",
+    100275
+   ],
+   [
+    "5",
+    99784
+   ],
+   [
+    "6",
+    99721
+   ],
+   [
+    "7",
+    100044
+   ],
+   [
+    "8",
+    100198
+   ],
+   [
+    "9",
+    100426
+   ]
+  ]
+ },
+ "crc32.two_seeds": {
+  "result": {
+   "both_below_0.1 (expect 10000)": 2905,
+   "both_below_0.5 (expect 250000)": 285648
+  }
+ },
+ "crc32_md5.filter_0.2": {
+  "result": {
+   "seconds": 0.551,
+   "rows": 200218,
+   "same_twice": true
+  }
+ },
+ "crc32_md5.deciles": {
+  "result": [
+   [
+    "0",
+    100121
+   ],
+   [
+    "1",
+    100097
+   ],
+   [
+    "2",
+    100294
+   ],
+   [
+    "3",
+    99821
+   ],
+   [
+    "4",
+    99177
+   ],
+   [
+    "5",
+    100046
+   ],
+   [
+    "6",
+    99821
+   ],
+   [
+    "7",
+    100058
+   ],
+   [
+    "8",
+    100397
+   ],
+   [
+    "9",
+    100168
+   ]
+  ]
+ },
+ "crc32_md5.two_seeds": {
+  "result": {
+   "both_below_0.1 (expect 10000)": 9986,
+   "both_below_0.5 (expect 250000)": 249792
+  }
+ },
+ "crc32_md5.with_row_number_s": {
+  "result": {
+   "seconds": 3.486,
+   "rows": 199760
+  }
+ }
+}

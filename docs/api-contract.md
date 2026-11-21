@@ -172,6 +172,9 @@ All return a new `DataFrame`. Column arguments accept a column name (`str`) or a
 | `transform(func, *args, **kwargs)` | a function returning a `DataFrame` | `func(df, *args, **kwargs)`, for chaining custom steps |
 | `toDF(*cols)` | new names, one per column | Renames every column |
 | `createOrReplaceTempView(name)`, `createTempView(name)` | `str` | A session name for the DataFrame, found by `table(name)`, `read.table(name)` and Spark SQL in `sql()`. Nothing is created in IRIS. `createTempView` raises `AnalysisError` if the name exists |
+| `sample(withReplacement=None, fraction=None, seed=None)` | `sample(0.1)`, `sample(0.1, 42)`, `sample(False, 0.1, 42)`, `sample(fraction=0.1, seed=42)`; `fraction` in [0, 1] | Each row with probability `fraction`; the same rows for the same seed on every run, other rows than Spark's (compiler spec §7.20). `withReplacement=True` raises `UnsupportedOperationError` (0.3.x) |
+| `randomSplit(weights, seed=None)` | a list of non-negative numbers, normalized | A list of DataFrames; every row is in exactly one of them, the same one on every run for a given seed (0.3.x) |
+| `sampleBy(col, fractions, seed=None)`, `stat.sampleBy(...)` | `col`: name or `Column`; `fractions`: dict of value to fraction in [0, 1] | Rows whose `col` is not a key are never kept (0.3.x) |
 | `dropna(how="any", thresh=None, subset=None)`, `na.drop(...)` | `how`: `"any"` or `"all"`; `thresh`: `int` | Drops rows with NULL, or NaN in double columns, in the `subset` columns. `thresh` keeps rows with at least that many valid values and overrides `how`. (0.2) |
 
 ### 4.2 Join types
@@ -381,6 +384,8 @@ Statistics (compiler spec §7.18, compatibility matrix §2.20). All return `doub
 | `corr(col1, col2)`, `covar_pop(col1, col2)`, `covar_samp(col1, col2)` | Over rows where both are not NULL; NULL where Spark divides by zero (a constant column) |
 | `skewness(col)`, `kurtosis(col)` | Spark's population moments (excess kurtosis); NULL when the spread is zero |
 | `median(col)`, `percentile(col, percentage)` | Exact, interpolated between neighbors as Spark's `percentile`; in `agg()` and `select()`, not over a window. A list of percentages or a frequency raises `UnsupportedOperationError` |
+
+Random values (compiler spec §7.20, compatibility matrix §2.21): `rand(seed=None)` in [0, 1) and `randn(seed=None)`, standard normal, `double` and not nullable, named `rand(42)` as in Spark. A row's value comes from the seed and the row's columns, so it is the same on every run and differs from Spark's. Without a seed, a random one is drawn when the column is made. Not allowed in a join condition.
 
 The statistical aggregates over a window (`stddev(x).over(w)`) raise `UnsupportedOperationError`.
 

@@ -40,6 +40,7 @@ class TableScan(Plan):
     table: TableRef
     attrs: tuple[E.Attribute, ...]
     unsupported: tuple[tuple[str, str], ...] = ()  # (column, IRIS type) left out of attrs
+    key: tuple[int, ...] = ()  # ids of the primary key's columns, if the table has one and all are in attrs
 
     @property
     def output(self):

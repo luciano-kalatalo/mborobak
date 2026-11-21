@@ -443,6 +443,80 @@ class DataFrame:
     def distinct(self) -> "DataFrame":
         return self._with(P.Distinct(self._plan))
 
+    # ---------------------------------------------------------------- sampling (compiler spec §7.20)
+    def sample(self, withReplacement: Any = None, fraction: Any = None, seed: int | None = None) -> "DataFrame":  # noqa: N803
+        """Each row with probability ``fraction``: ``sample(0.1)``, ``sample(fraction=0.1, seed=42)``,
+        ``sample(False, 0.1, 42)``. The same seed gives the same rows every time; they differ from Spark's."""
+        if isinstance(withReplacement, (int, float)) and not isinstance(withReplacement, bool):
+            if fraction is not None:  # sample(0.1, 42): PySpark reads the second argument as the seed
+                seed = fraction
+            withReplacement, fraction = None, withReplacement
+        if withReplacement is not None and not isinstance(withReplacement, bool):
+            raise TypeError("sample() takes withReplacement as a bool")
+        if isinstance(fraction, bool) or not isinstance(fraction, (int, float)):
+            raise TypeError("sample() takes fraction as a float")
+        if withReplacement:
+            raise UnsupportedOperationError("sample(withReplacement=True) is not supported; sample without "
+                                            "replacement, or repeat rows with a join", operation=_op("sample"))
+        fraction = float(fraction)
+        if not 0.0 <= fraction <= 1.0:
+            raise ValueError(f"sample() fraction must be between 0 and 1, got {fraction}")
+        from .sql import functions as F
+
+        return self.filter(F.rand(_seed(seed, "sample")) < F.lit(fraction))
+
+    def randomSplit(self, weights: list[float], seed: int | None = None) -> list["DataFrame"]:  # noqa: N802
+        """DataFrames that split the rows by ``weights`` (normalized): every row lands in exactly one of them, the
+        same one every time for a given seed."""
+        from .sql import functions as F
+
+        if not isinstance(weights, (list, tuple)) or not weights:
+            raise TypeError("randomSplit() takes a list of weights")
+        for w in weights:
+            if isinstance(w, bool) or not isinstance(w, (int, float)):
+                raise TypeError("randomSplit() weights must be numbers")
+            if w < 0:
+                raise ValueError(f"randomSplit() weights must be positive, got {w}")
+        total = float(sum(weights))
+        if total <= 0:
+            raise ValueError("randomSplit() weights must add up to more than 0")
+        u = F.rand(_seed(seed, "randomSplit"))
+        bounds, acc = [0.0], 0.0
+        for w in weights:
+            acc += w
+            bounds.append(acc / total)
+        bounds[-1] = 1.0
+        return [self.filter((u >= F.lit(lo)) & (u < F.lit(hi))) for lo, hi in zip(bounds, bounds[1:])]
+
+    def sampleBy(self, col: Any, fractions: dict, seed: int | None = None) -> "DataFrame":  # noqa: N802
+        """Stratified sample: rows whose ``col`` is a key of ``fractions`` with that key's probability, other rows
+        never."""
+        from .sql import functions as F
+
+        if isinstance(col, str):
+            col = F.col(col)
+        if not isinstance(col, Column):
+            raise TypeError("sampleBy() takes a column name or a Column")
+        if not isinstance(fractions, dict):
+            raise TypeError("sampleBy() takes fractions as a dict")
+        for k, v in fractions.items():
+            if not isinstance(k, (float, int, str)) or isinstance(k, bool):
+                raise TypeError(f"sampleBy() keys must be float, int or str, got {type(k).__name__}")
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
+                raise ValueError(f"sampleBy() fractions must be between 0 and 1, got {v!r}")
+        u = F.rand(_seed(seed, "sampleBy"))
+        if not fractions:
+            return self.filter(F.lit(False))
+        chosen = None
+        for k, v in fractions.items():
+            chosen = (F.when(col == F.lit(k), F.lit(float(v))) if chosen is None
+                      else chosen.when(col == F.lit(k), F.lit(float(v))))
+        return self.filter(u < chosen.otherwise(F.lit(0.0)))
+
+    @property
+    def stat(self) -> "DataFrameStatFunctions":
+        return DataFrameStatFunctions(self)
+
     def groupBy(self, *cols: Any) -> "GroupedData":  # noqa: N802
         return GroupedData(self, _flatten(cols), _op("groupBy"))
 
@@ -958,6 +1032,26 @@ class DataFrameNaFunctions:
 
     def drop(self, how: str = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
         return self._df.dropna(how, thresh, subset)
+
+
+class DataFrameStatFunctions:
+    """``df.stat``: ``sampleBy``."""
+
+    def __init__(self, df: DataFrame):
+        self._df = df
+
+    def sampleBy(self, col: Any, fractions: dict, seed: int | None = None) -> DataFrame:  # noqa: N802
+        return self._df.sampleBy(col, fractions, seed)
+
+
+def _seed(seed: Any, fn: str) -> int | None:
+    if seed is None:
+        from .randomness import new_seed
+
+        return new_seed()
+    if isinstance(seed, bool) or not isinstance(seed, (int, float)):
+        raise TypeError(f"{fn}() takes an integer seed")
+    return int(seed)
 
 
 def _is_percentile(node: E.AggregateCall) -> bool:

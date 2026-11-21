@@ -566,7 +566,7 @@ def sql_type(text: str) -> DataType:
 
 # Positional arguments that PySpark's functions take as Python constants, not Columns.
 _CONSTANT_ARGS = {"ntile": (0,), "lag": (1, 2), "lead": (1, 2), "months_between": (2,), "first": (1,),
-                  "last": (1,), "regexp_extract": (1, 2), "regexp_instr": (2,)}
+                  "last": (1,), "regexp_extract": (1, 2), "regexp_instr": (2,), "rand": (0,), "randn": (0,)}
 _SQL_ONLY = {"col", "column", "lit", "when", "expr", "asc", "desc", "asc_nulls_first", "asc_nulls_last",
              "desc_nulls_first", "desc_nulls_last", "count_distinct"}
 

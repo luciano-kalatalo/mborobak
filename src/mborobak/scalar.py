@@ -794,5 +794,44 @@ def _register_more(R: dict) -> None:
     R["from_utc_timestamp"] = Spec(_t_utc, _r_utc(False))
 
 
+def _t_random(e, args, op):
+    return DoubleType(), False
+
+
+def _r_unbound(r, e):
+    raise UnsupportedOperationError(f"{e.name}() can't be used here")  # bound by randomness.bind before compiling
+
+
+def _r_rand_row(r, e):
+    """``rand_row(seed, kind, columns…)``: a hash of the seed and the row (compiler spec §7.20)."""
+    seed, kind = int(e.args[0].value), e.args[1].value
+
+    def key(salt: str) -> str:
+        parts = [f"'{seed}{salt}'"]
+        for k in e.args[2:]:
+            t, _ = A.infer(k)
+            v = r.value(k)
+            parts.append(f"COALESCE({v if isinstance(t, StringType) else f'CAST({v} AS VARCHAR(100))'}, CHAR(2))")
+        return " || CHAR(1) || ".join(parts)
+
+    if kind == "rand":
+        return f"CAST(CRC32(MD5({key('')})) / 4294967296.0 AS DOUBLE)"
+    # Box-Muller: sqrt(-2 ln u1) cos(2 pi u2), u1 in (0, 1]
+    u1 = f"((CRC32(MD5({key('a')})) + 1) / 4294967297.0)"
+    u2 = f"(CRC32(MD5({key('b')})) / 4294967296.0)"
+    return f"CAST(SQRT(-2 * LOG({u1})) * COS(6.283185307179586 * {u2}) AS DOUBLE)"
+
+
+def _n_random(e, expr_name):
+    return f"{e.name}({e.args[0].value})"
+
+
+def _register_random(R: dict) -> None:
+    R["rand"] = Spec(_t_random, _r_unbound, namer=_n_random)
+    R["randn"] = Spec(_t_random, _r_unbound, namer=_n_random)
+    R["rand_row"] = Spec(_t_random, _r_rand_row, namer=lambda e, n: f"{e.args[1].value}({e.args[0].value})")
+
+
 _register_regex(REGISTRY)
 _register_more(REGISTRY)
+_register_random(REGISTRY)

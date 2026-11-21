@@ -518,7 +518,9 @@ class Compiler:
             text = plan.query.original
             fingerprint = hashlib.sha256(text.encode()).hexdigest()[:16]
             return SqlStatement(text, list(plan.args), schema, [], fingerprint)
-        block = self.build(plan)
+        from .randomness import bind
+
+        block = self.build(bind(plan))
         renderer = Renderer(self)
         text = renderer.block(block, top_level=True)
         params = renderer.params
@@ -729,7 +731,7 @@ class Renderer:
         def k() -> str:  # each use renders the key again, so parameters stay in text order
             return self.value(key)
 
-        if isinstance(dtype, DoubleType):
+        if isinstance(dtype, DoubleType) and not (isinstance(key, E.Func) and key.name == "rand_row"):
             # §7.9: bucket key restores Spark's order around IRIS's -1E19 NULL marker.
             null_bucket = 0 if default_nulls else 5
             note = f"double sort: bucket key on {name}"
@@ -850,7 +852,7 @@ class Renderer:
             if swap and name in windows.VALUE:
                 name = {"first": "last", "last": "first", "first_value": "last_value",
                         "last_value": "first_value"}[name]
-            sql = {"row_number": "ROW_NUMBER", "rank": "RANK", "dense_rank": "DENSE_RANK",
+            sql = {"row_number": "ROW_NUMBER", "copy_number": "ROW_NUMBER", "rank": "RANK", "dense_rank": "DENSE_RANK",
                    "percent_rank": "PERCENT_RANK", "cume_dist": "CUME_DIST", "ntile": "NTILE",
                    "first": "FIRST_VALUE", "last": "LAST_VALUE", "first_value": "FIRST_VALUE",
                    "last_value": "LAST_VALUE"}[name]
@@ -896,6 +898,12 @@ class Renderer:
             if e.value is None:
                 return "null"
             return "always" if isinstance(e.value, float) and math.isnan(e.value) else "never"
+        if isinstance(e, E.Func) and e.name == "rand_row":
+            return "never"  # finite and never NULL (§7.20)
+        if isinstance(e, E.CaseWhen) and e.otherwise is not None:
+            values = [v for _, v in e.branches] + [e.otherwise]
+            if all(Renderer.nan_kind(v) == "never" for v in values):
+                return "never"
         return "maybe" if isinstance(infer(e)[0], DoubleType) else "never"
 
     def _note_nan(self) -> None:

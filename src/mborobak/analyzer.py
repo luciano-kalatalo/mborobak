@@ -413,7 +413,7 @@ def _infer_window(w: E.WindowExpr, operation: str | None) -> tuple[DataType, boo
     f = w.function
     if isinstance(f, E.AggregateCall):
         return infer(f, operation)
-    if f.name in ("row_number", "rank", "dense_rank", "ntile"):
+    if f.name in ("row_number", "rank", "dense_rank", "ntile", "copy_number"):
         return IntegerType(), False
     if f.name in ("percent_rank", "cume_dist"):
         return DoubleType(), False

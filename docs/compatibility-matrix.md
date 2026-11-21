@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-l` | Sampling probe 2026-11-21 ([`probes/sampling_probe.py`](../probes/sampling_probe.py)), [compiler spec](compiler-spec.md) §12.10 |
 | `P-k` | Regular-expression probe 2026-11-20 ([`probes/regex_probe.py`](../probes/regex_probe.py)), [compiler spec](compiler-spec.md) §12.8 |
 | `P-j` | Temporary-table probe 2026-11-20 ([`probes/temp_table_probe.py`](../probes/temp_table_probe.py)), [compiler spec](compiler-spec.md) §9.8 |
 | `P-i` | NaN comparison probe 2026-11-20 ([`probes/nan_comparison_probe.py`](../probes/nan_comparison_probe.py)), [compiler spec](compiler-spec.md) §12.7 |
@@ -401,6 +402,19 @@ Asked for by a set of 43 IRISpark notebooks, scanned on 2026-11-20 ([compiler sp
 | DF-02 | `transform`, `toDF`, `createOrReplaceTempView` with `table()` and Spark SQL | As described | — | Session-level names | Same | diff |
 | DF-03 | `isEmpty`, `tail` | As described | — | `take(1)`; every row fetched for `tail` | Same | diff |
 
+### 2.21 Random values and sampling (release 0.3.x)
+
+IRIS SQL has no `RAND`. Mborobak hashes the seed with the row's columns, numbering identical rows unless the rows are known distinct ([compiler spec](compiler-spec.md) §7.20). Spark derives its values from the seed and the row's position in its partition, so the two give different values and samples; the rows compare what both guarantee.
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| RAND-01 | `rand(seed)`, `randn(seed)`, without a seed, in SQL expression strings: names, types, nullability | `rand(42)`, `double`, not nullable; a random seed in the name | No `RAND` | Same | Same | P-l / diff |
+| RAND-02 | Values: `rand` in [0, 1), `randn` standard normal; the same for a row on every run with the same seed; different between rows | Position-based | — | `CRC32(MD5(seed, row))`; identical rows numbered by `ROW_NUMBER()` unless known distinct | Known difference: the values (and so the rows a sample keeps) differ from Spark's | P-l / diff |
+| RAND-03 | `sample(fraction, seed)`, `sample(withReplacement=False, …)`, `sample(0.1, 42)`: schema, fractions 0 and 1, repeatable | Bernoulli: `rand < fraction` | — | Same, with RAND-02's values | Same | diff |
+| RAND-04 | `randomSplit(weights, seed)`: weights normalized, every row in exactly one split, the same split on every run | As described | — | One filter per split on the same values | Same | diff |
+| RAND-05 | `sampleBy(col, fractions, seed)`, `df.stat.sampleBy`: strata with fractions 0 and 1, keys not listed, no keys | As described | — | `rand < CASE col WHEN … END` | Same | diff |
+| RAND-06 | `sample(withReplacement=True)`; a fraction outside [0, 1]; negative weights | Poisson sampling; errors | — | `UnsupportedOperationError`; `ValueError` when called | Unsupported (with replacement) | diff |
+
 ## 3. Differential test suite
 
 ### 3.1 How a row is verified
@@ -456,6 +470,7 @@ For the README and the docs site, the P0 known differences fit in one short list
 - `session.sql()` takes Spark SQL `SELECT` statements (§2.19), not other statements; with `mborobak.sql.dialect = "iris"` it takes IRIS SQL, where `GROUP BY 1` means the constant 1 (API-01, GRP-01).
 - With `stringSemantics="iris"`, string comparison, grouping and sorting follow IRIS's case-insensitive rules (§2.1).
 - `createDataFrame` infers `timestamp_ntz` for `datetime` values (CDF-07) and makes missing pandas strings NULL (CDF-08).
+- `rand`, `randn`, `sample`, `randomSplit` and `sampleBy` give other values and rows than Spark for the same seed, repeatable from run to run (RAND-02); `sample(withReplacement=True)` is not supported (RAND-06).
 - Writing tables: decimals keep at most 19 digits before the point (WRITE-07); column names with `.`, `,` or `^`, which some default names contain, need an alias (WRITE-09); file writers (`save`, `parquet`, `csv`) are not supported (WRITE-12).
 
 ## 5. Open items

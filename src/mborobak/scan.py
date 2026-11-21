@@ -89,7 +89,7 @@ _SPARK_METHODS = set("""
     dropDuplicates drop_duplicates dropna fillna orderBy sort sortWithinPartitions limit distinct
     groupBy agg alias join crossJoin union unionAll unionByName intersect intersectAll subtract
     exceptAll collect show count take first head tail toPandas cache persist unpersist checkpoint
-    localCheckpoint repartition coalesce explain printSchema describe summary sample randomSplit toDF
+    localCheckpoint repartition coalesce explain printSchema describe summary sample randomSplit sampleBy toDF
     transform createOrReplaceTempView createTempView createGlobalTempView createOrReplaceGlobalTempView
     foreach foreachPartition mapInPandas applyInPandas pivot rollup cube withWatermark isEmpty toJSON
     hint observe melt unpivot offset toSQL pandas_api
@@ -295,6 +295,8 @@ def classify(kind: str, name: str, supported: dict[str, set[str]]) -> tuple[str,
             if {"fillna", "dropna"} <= supported[METHOD]:
                 return SUPPORTED, None, None
             return PLANNED, "0.2", None
+        if name == "na.replace" and "replace" in supported[METHOD]:
+            return SUPPORTED, None, None
         if name in _NA_METHODS:
             return NOT_SCHEDULED, None, None
         if name in supported[METHOD]:
