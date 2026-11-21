@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-11-21)
+
+Random values and sampling. On the public Databricks notebooks, every in-scope PySpark call is now supported (99% in 0.3.1); on the 43 IRISpark notebooks, 98% (97%).
 
 - Random values and sampling: `rand`, `randn`, `sample`, `randomSplit`, `sampleBy` and `df.stat.sampleBy`, also `rand(…)` in SQL strings. IRIS SQL has no `RAND`, so a row's value is a hash of the seed and its columns (`CRC32(MD5(…))`), the same on every run: `randomSplit`'s splits never overlap or lose rows. Identical rows are numbered first, unless the rows are known distinct (a primary key, `distinct()`, `groupBy()`). The values differ from Spark's for the same seed; `sample(withReplacement=True)` is not supported (compiler spec §7.20, matrix §2.21).
 - `mborobak-scan` reports `na.replace` as supported, and counts `sampleBy`. On the public Databricks notebooks, every in-scope call is now supported; on the 43 IRISpark notebooks, 98%.
