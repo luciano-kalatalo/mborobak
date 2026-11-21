@@ -5,6 +5,6 @@ from .dataframe import DataFrame, GroupedData
 from .row import Row
 from .session import MborobakSession
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 __all__ = ["MborobakSession", "DataFrame", "Column", "Row", "GroupedData", "__version__"]
