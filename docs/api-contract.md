@@ -198,6 +198,9 @@ Output columns follow compiler spec §6.3. A semi or anti join on names (`join(o
 | `agg(*exprs)` | Aggregate `Column`s, optionally aliased. Also `agg({"amount": "sum", "id": "count"})`, as in PySpark |
 | `count()` | Adds a `count` column |
 | `sum(*cols)`, `avg(*cols)`, `mean(*cols)`, `min(*cols)`, `max(*cols)` | Column names; with no names, all numeric columns (`min`/`max`: all columns), as in PySpark |
+| `pivot(pivot_col, values=None)` | After `groupBy()`: one column per value, named by it, or `value_aggregate` with several aggregates; NULL where a group has no row with the value. Without `values`, a query reads the distinct values first (at most 10,000) (0.3.x) |
+
+`df.rollup(*cols)` and `df.cube(*cols)` return the same `GroupedData` methods (no `pivot`); rows for the subtotals have NULL keys. `df.unpivot(ids, values, variableColumnName, valueColumnName)` and `df.melt(...)` turn value columns into rows; `values=None` takes every column that is not an id (0.3.x, compiler spec §7.21).
 
 A non-aggregated column in `agg()` that isn't a grouping column raises `AnalysisError` at the `agg()` call.
 

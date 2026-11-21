@@ -25,6 +25,7 @@ Every row records where its two sides come from:
 | `S§x` | [IRIS behavior study](iris-behavior-study.md), IRIS 2026.2 |
 | `P-b`, `P-c` | Follow-up probes 2026-11-18b and 2026-11-18c, [compiler spec](compiler-spec.md) §12 |
 | `P-d` | Probe 2026-11-18d, made for this document (§6) |
+| `P-m` | Grouping probe 2026-11-21 ([`probes/grouping_probe.py`](../probes/grouping_probe.py)), [compiler spec](compiler-spec.md) §12.11 |
 | `P-l` | Sampling probe 2026-11-21 ([`probes/sampling_probe.py`](../probes/sampling_probe.py)), [compiler spec](compiler-spec.md) §12.10 |
 | `P-k` | Regular-expression probe 2026-11-20 ([`probes/regex_probe.py`](../probes/regex_probe.py)), [compiler spec](compiler-spec.md) §12.8 |
 | `P-j` | Temporary-table probe 2026-11-20 ([`probes/temp_table_probe.py`](../probes/temp_table_probe.py)), [compiler spec](compiler-spec.md) §9.8 |
@@ -414,6 +415,18 @@ IRIS SQL has no `RAND`. Mborobak hashes the seed with the row's columns, numberi
 | RAND-04 | `randomSplit(weights, seed)`: weights normalized, every row in exactly one split, the same split on every run | As described | — | One filter per split on the same values | Same | diff |
 | RAND-05 | `sampleBy(col, fractions, seed)`, `df.stat.sampleBy`: strata with fractions 0 and 1, keys not listed, no keys | As described | — | `rand < CASE col WHEN … END` | Same | diff |
 | RAND-06 | `sample(withReplacement=True)`; a fraction outside [0, 1]; negative weights | Poisson sampling; errors | — | `UnsupportedOperationError`; `ValueError` when called | Unsupported (with replacement) | diff |
+
+### 2.22 Pivot, unpivot, rollup and cube (release 0.3.x)
+
+[Compiler spec](compiler-spec.md) §7.21.
+
+| ID | Behavior | PySpark | IRIS | Mborobak | Status | Evidence |
+|----|----------|---------|------|----------|--------|----------|
+| SHAPE-01 | `groupBy().pivot(col, values)`: names (`p`, `null`, `p_sum(i)` with several aggregates), values cast to the column's type, values absent from the data, NULL as a value | NULL where a group has no row with the value, `count` included | No `PIVOT` | `agg(CASE WHEN col = v THEN x END)` per value, NULL unless a row matches | Same | diff |
+| SHAPE-02 | `pivot(col)` without values; `groupBy().pivot()` without keys; aggregates inside expressions | Distinct values, sorted with NULL first; at most 10,000 | — | One query for the values, then as SHAPE-01 | Same | diff |
+| SHAPE-03 | `rollup(…)`, `cube(…)` with `agg`, `count`, expressions as keys, `median` | Subtotal rows with NULL keys; keys nullable | No `ROLLUP`, `CUBE`, `GROUPING SETS` | One aggregate per grouping set, `UNION ALL` | Same (`grouping()` and `grouping_id()` are not supported) | P-m / diff |
+| SHAPE-04 | `unpivot(ids, values, variable, value)`, `melt`: value columns widened to a common type, `values=None`, no ids | Variable column not nullable | — | One `SELECT` per value column, `UNION ALL` | Same | diff |
+| SHAPE-05 | `unpivot` of columns without a common type; `pivot` after `rollup` | `AnalysisException` | — | `AnalysisError` | Same | diff |
 
 ## 3. Differential test suite
 

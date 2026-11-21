@@ -520,6 +520,52 @@ class DataFrame:
     def groupBy(self, *cols: Any) -> "GroupedData":  # noqa: N802
         return GroupedData(self, _flatten(cols), _op("groupBy"))
 
+    def rollup(self, *cols: Any) -> "GroupedData":
+        """Groups by every prefix of ``cols``: (a, b), (a), and the grand total (compiler spec §7.21)."""
+        return GroupedData(self, _flatten(cols), _op("rollup"), "rollup")
+
+    def cube(self, *cols: Any) -> "GroupedData":
+        """Groups by every subset of ``cols``."""
+        return GroupedData(self, _flatten(cols), _op("cube"), "cube")
+
+    def unpivot(self, ids: Any, values: Any, variableColumnName: str, valueColumnName: str) -> "DataFrame":  # noqa: N803
+        """Wide to long: one row per input row and value column, with the column's name and its value."""
+        from .sql import functions as F
+
+        op = _op("unpivot")
+
+        def as_list(x: Any) -> list:
+            if x is None:
+                return []
+            return list(x) if isinstance(x, (list, tuple)) else [x]
+
+        id_cols = [F.col(c) if isinstance(c, str) else c for c in as_list(ids)]
+        id_names = {output_name(c._expr).lower() for c in id_cols}
+        if values is None:
+            value_cols = [F.col(a.name) for a in self._plan.output if a.name.lower() not in id_names]
+        else:
+            value_cols = [F.col(c) if isinstance(c, str) else c for c in as_list(values)]
+        if not value_cols:
+            raise AnalysisError("unpivot() needs at least one value column", operation=op)
+        resolved = [resolve(c._expr, self._plan, op) for c in value_cols]
+        target = None
+        for c, r in zip(value_cols, resolved):
+            t, _ = infer(r, op)
+            target = t if target is None else wider(target, t)
+            if target is None:
+                types = ", ".join(f"{output_name(c._expr)} {infer(x, op)[0].simpleString()}"
+                                  for c, x in zip(value_cols, resolved))
+                raise AnalysisError(f"unpivot() value columns must share a common type: {types}", operation=op)
+        result = None
+        for c, r in zip(value_cols, resolved):
+            value = Column(r) if infer(r, op)[0] == target else Column(r).cast(target)
+            arm = self.select(*id_cols, F.lit(output_name(c._expr)).alias(variableColumnName),
+                              value.alias(valueColumnName))
+            result = arm if result is None else result.union(arm)
+        return result
+
+    melt = unpivot
+
     groupby = groupBy
 
     def agg(self, *exprs: Any) -> "DataFrame":
@@ -872,9 +918,11 @@ class DataFrame:
 
 
 class GroupedData:
-    def __init__(self, df: DataFrame, cols: list, operation: str):
+    def __init__(self, df: DataFrame, cols: list, operation: str, kind: str = "groupBy"):
         self._df = df
         self._op = operation
+        self._kind = kind  # groupBy, rollup or cube
+        self._pivot: tuple[E.Expr, list] | None = None
         self._keys: list[tuple[E.Attribute, E.Expr]] = []
         for c in cols:
             original = to_column_expr(c)
@@ -893,10 +941,100 @@ class GroupedData:
             exprs = tuple(getattr(F, fn if fn != "mean" else "avg")(c) for c, fn in exprs[0].items())
         if not exprs:
             raise ValueError("agg() needs at least one aggregate expression")
-        key_exprs = [e for _, e in self._keys]
+        if self._kind != "groupBy":
+            return self._grouping_sets(exprs, op)
+        if self._pivot is not None:
+            return self._pivot_agg(exprs, op)
         if any(isinstance(c, Column) and _has_percentile(c._expr) for c in exprs):
             return self._percentile_agg(exprs, op)
         return self._aggregate(self._df, exprs, op)
+
+    # ---------------------------------------------------------------- rollup, cube (compiler spec §7.21)
+    def _grouping_sets(self, exprs: tuple, op: str) -> DataFrame:
+        """IRIS has no ROLLUP, CUBE or GROUPING SETS: one aggregate per set, the other keys NULL, UNION ALL."""
+        import copy
+        import itertools
+
+        from .sql import functions as F
+
+        n = len(self._keys)
+        if self._kind == "rollup":
+            sets = [list(range(k)) for k in range(n, -1, -1)]
+        else:  # cube: every subset, largest first
+            sets = [list(s) for k in range(n, -1, -1) for s in itertools.combinations(range(n), k)]
+        result = None
+        for chosen in sets:
+            arm = copy.copy(self)
+            arm._kind = "groupBy"
+            arm._keys = [self._keys[i] for i in chosen]
+            out = arm.agg(*exprs)
+            keys = out._plan.output[:len(chosen)]
+            aggs = out._plan.output[len(chosen):]
+            by_index = dict(zip(chosen, keys))
+            cols = []
+            for i, (attr, _) in enumerate(self._keys):
+                if i in by_index:
+                    cols.append(Column(E.AttrRef(by_index[i])).alias(attr.name))
+                else:
+                    cols.append(F.lit(None).cast(attr.dtype).alias(attr.name))
+            arm_df = out.select(*cols, *[Column(E.AttrRef(a)) for a in aggs])
+            result = arm_df if result is None else result.union(arm_df)
+        return result
+
+    # ---------------------------------------------------------------- pivot (compiler spec §7.21)
+    def pivot(self, pivot_col: Any, values: list | None = None) -> "GroupedData":
+        """One column per pivot value (per value and aggregate with several aggregates). Without ``values``,
+        the distinct values are read first, sorted, as Spark does."""
+        op = _op("pivot")
+        if self._kind != "groupBy" or self._pivot is not None:
+            raise AnalysisError("pivot() is only supported after groupBy()", operation=op)
+        expr = resolve(to_column_expr(pivot_col), self._df._plan, op)
+        if values is None:
+            column = Column(expr)
+            rows = self._df.select(column).distinct().orderBy(column.asc_nulls_first()).take(_PIVOT_MAX + 1)
+            if len(rows) > _PIVOT_MAX:
+                raise AnalysisError(f"pivot() column has more than {_PIVOT_MAX} distinct values; pass values=[…]",
+                                    operation=op)
+            values = [r[0] for r in rows]
+        elif not isinstance(values, (list, tuple)):
+            raise TypeError("pivot() takes values as a list")
+        out = GroupedData.__new__(GroupedData)
+        out.__dict__.update(self.__dict__)
+        out._pivot = (expr, list(values))
+        return out
+
+    def _pivot_agg(self, exprs: tuple, op: str) -> DataFrame:
+        """``agg(CASE WHEN p <=> v THEN x END)`` per value; NULL where a group has no row with the value, as
+        Spark's pivot gives even for count."""
+        from .sql import functions as F
+
+        pivot, values = self._pivot  # type: ignore[misc]
+        dtype, _ = infer(pivot, op)
+        originals = []
+        for c in exprs:
+            if not isinstance(c, Column):
+                raise TypeError("agg() takes Columns or a dict")
+            if _has_percentile(c._expr):
+                raise UnsupportedOperationError("median and percentile are not supported with pivot()",
+                                                operation=op)
+            originals.append((output_name(c._expr), resolve(c._expr, self._df._plan, op)))
+        columns, names = [], []
+        for v in values:
+            match = (Column(pivot).isNull() if v is None else Column(pivot) == F.lit(v).cast(dtype))._expr
+
+            def only(node: E.Expr, match=match):
+                if isinstance(node, E.AggregateCall):
+                    child = E.Literal(1, IntegerType()) if isinstance(node.child, E.Star) else node.child
+                    return E.AggregateCall(node.function, E.CaseWhen(((match, child),)), node.distinct)
+                return None
+
+            present = F.count(F.when(Column(match), 1)) > 0
+            for name, r in originals:
+                core = r.child if isinstance(r, E.Alias) else r
+                columns.append(F.when(present, Column(E.transform_down(core, only))))
+                label = _pivot_label(v)
+                names.append(label if len(originals) == 1 else f"{label}_{name}")
+        return self._aggregate(self._df, tuple(columns), op, names)
 
     def _aggregate(self, source: DataFrame, exprs: tuple, op: str, names: list[str] | None = None) -> DataFrame:
         key_exprs = [e for _, e in self._keys]
@@ -1052,6 +1190,18 @@ def _seed(seed: Any, fn: str) -> int | None:
     if isinstance(seed, bool) or not isinstance(seed, (int, float)):
         raise TypeError(f"{fn}() takes an integer seed")
     return int(seed)
+
+
+_PIVOT_MAX = 10000  # Spark's spark.sql.pivotMaxValues
+
+
+def _pivot_label(v: Any) -> str:
+    """The column name Spark gives a pivot value."""
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return str(v)
 
 
 def _is_percentile(node: E.AggregateCall) -> bool:

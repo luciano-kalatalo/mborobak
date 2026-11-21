@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Reshaping: `groupBy().pivot(col, values)` (with or without values), `rollup`, `cube`, `unpivot` and `melt`, with Spark's names, types and NULLs. IRIS has no `PIVOT`, `ROLLUP`, `CUBE` or `GROUPING SETS`, so a pivot is one `GROUP BY` with an aggregate per value, and `rollup`, `cube` and `unpivot` are `UNION ALL`s of simpler queries (compiler spec §7.21, matrix §2.22). `grouping()` and `grouping_id()` are not supported. On the 43 IRISpark notebooks, 98.6% of the in-scope calls are now supported (1,383 of 1,403; 98.1% before).
+
 ## 0.3.2 (2026-11-21)
 
 Random values and sampling. On the public Databricks notebooks, every in-scope PySpark call is now supported (99% in 0.3.1); on the 43 IRISpark notebooks, 98% (97%).

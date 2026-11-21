@@ -1,0 +1,74 @@
+{
+ "meta.version": {
+  "result": "IRIS for UNIX (Ubuntu Server LTS for ARM64 Containers) 2026.2 (Build 221U) Fri Jun 26 2026 09:59:12 EDT"
+ },
+ "rollup_function": {
+  "sql": "SELECT a, b, SUM(x) FROM MborobakGrp.R GROUP BY ROLLUP(a, b)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-359>:<SQL Function (function stored procedure) not found>]"
+ },
+ "rollup_bare": {
+  "sql": "SELECT a, b, SUM(x) FROM MborobakGrp.R GROUP BY ROLLUP a, b",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-29>:<Field not found in the applicable tables>]"
+ },
+ "with_rollup": {
+  "sql": "SELECT a, b, SUM(x) FROM MborobakGrp.R GROUP BY a, b WITH ROLLUP",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-25>:<Input encountered after end of query>]"
+ },
+ "cube": {
+  "sql": "SELECT a, b, SUM(x) FROM MborobakGrp.R GROUP BY CUBE(a, b)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-359>:<SQL Function (function stored procedure) not found>]"
+ },
+ "grouping_sets": {
+  "sql": "SELECT a, b, SUM(x) FROM MborobakGrp.R GROUP BY GROUPING SETS ((a, b), (a), ())",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-29>:<Field not found in the applicable tables>]"
+ },
+ "grouping_function": {
+  "sql": "SELECT a, SUM(x), GROUPING(a) FROM MborobakGrp.R GROUP BY ROLLUP(a)",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-359>:<SQL Function (function stored procedure) not found>]"
+ },
+ "empty_group_by": {
+  "sql": "SELECT SUM(x) FROM MborobakGrp.R GROUP BY ()",
+  "status": "error",
+  "result": "<SQL ERROR>; Details: [SQLCODE: <-12>:<A term expected, beginning with one of the following: identifier, constant, aggregate, $$, :, (, +, -, %ALPHAUP, %EXACT, %MVR, %SQLSTRING, %SQLUPPER, %STRING, %TRUNCATE, or %UPPER>]"
+ },
+ "union_without_from": {
+  "sql": "SELECT 1 AS k UNION ALL SELECT 2",
+  "status": "ok",
+  "result": [
+   [
+    1
+   ],
+   [
+    2
+   ]
+  ]
+ },
+ "union_of_groupings": {
+  "sql": "SELECT a, SUM(x) FROM MborobakGrp.R GROUP BY a UNION ALL SELECT NULL, SUM(x) FROM MborobakGrp.R",
+  "status": "ok",
+  "result": [
+   [
+    null,
+    7
+   ],
+   [
+    "P",
+    30
+   ],
+   [
+    "Q",
+    5
+   ],
+   [
+    null,
+    42
+   ]
+  ]
+ }
+}

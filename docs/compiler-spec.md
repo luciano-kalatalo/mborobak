@@ -528,6 +528,14 @@ CAST(CRC32(MD5('42' || CHAR(1) || COALESCE(CAST(c1 AS VARCHAR(100)), CHAR(2)) ||
 
 The values differ from Spark's for the same seed (matrix RAND-02); what the two share (types, names, fractions 0 and 1, every row in exactly one split, repeatability) is tested against PySpark.
 
+### 7.21 Pivot, unpivot, rollup and cube (release 0.3.x)
+
+IRIS 2026.2 has no `PIVOT`, `UNPIVOT`, `ROLLUP`, `CUBE` or `GROUPING SETS` (§12.11), so all four are built from operations Mborobak already compiles ([`dataframe.py`](../src/mborobak/dataframe.py)):
+
+- `groupBy(keys).pivot(col, values).agg(f(x), …)`: for each value `v` and aggregate, `CASE WHEN COUNT(CASE WHEN col = v THEN 1 END) > 0 THEN f(CASE WHEN col = v THEN x END) END`, one `GROUP BY` query. `count(*)` counts `CASE WHEN col = v THEN 1 END`; NULL as a value matches `col IS NULL`. The outer `CASE` gives NULL where a group has no row with the value, as Spark's two-phase pivot does, even for `count`. Values are cast to the column's type; columns are named by the value (`null`, `true`), or `value_name` with several aggregates. Without `values`, one query reads the distinct values first, sorted with NULL first, at most 10,000, as Spark does. `median` and `percentile` with a pivot raise `UnsupportedOperationError`.
+- `rollup(a, b)` groups by `(a, b)`, `(a)` and `()`; `cube(a, b)` by every subset. Each set is an aggregate whose missing keys are typed NULLs, and the sets are combined with `UNION ALL`, so the input is read once per set (n + 1 times for `rollup`, 2ⁿ for `cube`). `grouping()` and `grouping_id()` are not supported.
+- `unpivot(ids, values, variable, value)` and `melt`: one `SELECT ids, 'column name', value` per value column, values widened to their common type (an `AnalysisError` without one), combined with `UNION ALL`.
+
 ## 8. Optional rewrites
 
 Each rewrite has a name, a precondition and a session switch (`optimizer.<name>`, default on). The test suite runs every test with all rewrites on and with all off and compares results (scope §6.10).
@@ -961,6 +969,17 @@ Script [`probes/sampling_probe.py`](../probes/sampling_probe.py), raw output [`p
 | `CRC32(MD5(row))`, seeds 42 and 43 | 9,986 and 249,792: independent |
 | With `ROW_NUMBER() OVER (PARTITION BY` the six columns`)`; `OVER ()`; partitioned by the `MD5` | 3.49 s; 3.43 s; 6.35 s |
 | `status` alone (5 values), without numbering; with it | 249,843 rows (all or none per value); 199,398 |
+
+### 12.11 Probe 2026-11-21: grouping sets
+
+Script [`probes/grouping_probe.py`](../probes/grouping_probe.py), raw output [`probes/results-2026-11-21-grouping-iris-2026.2.json`](../probes/results-2026-11-21-grouping-iris-2026.2.json), IRIS 2026.2.
+
+| Check | Result |
+|-------|--------|
+| `GROUP BY ROLLUP(a, b)`, `CUBE(a, b)`, `GROUPING(a)` | SQLCODE -359: read as user functions |
+| `GROUP BY ROLLUP a, b`, `GROUPING SETS (…)` | SQLCODE -29: read as column names |
+| `GROUP BY a, b WITH ROLLUP`; `GROUP BY ()` | SQLCODE -25; -12 |
+| `SELECT 1 UNION ALL SELECT 2`; a `GROUP BY` query `UNION ALL` a grand total | Both work |
 
 ## 13. Open questions
 
